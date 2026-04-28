@@ -79,6 +79,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button id="clearFiltersBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold tracking-wide text-gray-700">清除筛选</button>
           <button id="adminToggle" class="min-w-[52px] rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold tracking-wide text-gray-700">Dashboard</button>
           <button id="langToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">EN</button>
           <button id="gridToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Grid: Off</button>
@@ -86,10 +87,10 @@
       </div>
       <div id="dimNav" class="flex px-1">
         <button class="nav-tab" data-dim="视角">视角</button>
-        <button class="nav-tab" data-dim="姿势">姿势</button>
+        <button class="nav-tab" data-dim="姿态">姿态</button>
         <button class="nav-tab" data-dim="景别">景别</button>
         <button class="nav-tab" data-dim="环境">环境</button>
-        <button class="nav-tab" data-dim="无人">无人</button>
+        <button class="nav-tab" data-dim="素材">素材</button>
       </div>
       <div id="subFilterPanel" class="dim-panel border-b border-transparent">
         <div id="tagContainer" class="flex flex-wrap gap-2 px-4 pb-4 pt-3"></div>
@@ -215,10 +216,10 @@
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning'];
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
-    const DIMS = ['视角', '姿势', '景别', '环境', '无人'];
+    const DIMS = ['视角', '姿态', '景别', '环境', '素材'];
     const DIM_LABELS = {
-      zh: { '视角': '视角', '姿势': '姿势', '景别': '景别', '环境': '环境', '无人': '无人' },
-      en: { '视角': 'Angle', '姿势': 'Pose', '景别': 'Framing', '环境': 'Light', '无人': 'No Human' }
+      zh: { '视角': '视角', '姿态': '姿态', '景别': '景别', '环境': '环境', '素材': '素材' },
+      en: { '视角': 'Angle', '姿态': 'Pose', '景别': 'Framing', '环境': 'Light', '素材': 'Material' }
     };
     const I18N = {
       zh: {
@@ -231,6 +232,7 @@
         modalBadge: '沉浸预览',
         modalPromptLabel: '摄影师引导',
         modalQuoteFallback: '等待内容...',
+        clearFilters: '清除筛选',
         adminToggle: '管理页',
         adminTitle: '云端资产管理',
         adminSubtitle: '同步查看成功素材，并处理失败或待重试任务',
@@ -268,6 +270,7 @@
         modalBadge: 'Immersive View',
         modalPromptLabel: 'Photographer Prompt',
         modalQuoteFallback: 'Waiting for content...',
+        clearFilters: 'Clear',
         adminToggle: 'Dashboard',
         adminTitle: 'Media Management',
         adminSubtitle: 'Review synced assets and handle failed or pending jobs',
@@ -297,25 +300,25 @@
       }
     };
     const DICTIONARY = {
-      '视角': ['正面对镜', '侧身位', '背影位', '俯拍位', '仰拍位', '非人视角'],
-      '姿势': ['站立', '坐姿', '走跑', '蹲/跪', '躺卧', '静物/空间'],
-      '景别': ['全身', '七分身', '半身', '特写'],
-      '环境': ['晴天强光', '阴天柔光', '室内空间', '夜景霓虹', '日落黄昏'],
-      '无人': ['商品', '店面', '环境', '有人(忽略此项)']
+      '视角': ['正面', '侧面', '背面', '俯拍', '仰拍'],
+      '姿态': ['站姿', '坐姿', '蹲跪', '动态', '躺卧'],
+      '景别': ['全身', '七分', '半身', '特写'],
+      '环境': ['日光', '柔光', '室内', '夜景', '黄昏'],
+      '素材': ['商品', '店面', '纯景', '有人(忽略此项)']
     };
     const TAG_STYLE = {
       '视角': 'bg-black text-white',
-      '姿势': 'bg-[#111827] text-white',
+      '姿态': 'bg-[#111827] text-white',
       '景别': 'bg-[#374151] text-white',
       '环境': 'bg-[#6B7280] text-white',
-      '无人': 'bg-[#9CA3AF] text-white'
+      '素材': 'bg-[#9CA3AF] text-white'
     };
     const DEFAULT_TAGS = {
-      '视角': '正面对镜',
-      '姿势': '站立',
+      '视角': '正面',
+      '姿态': '站姿',
       '景别': '半身',
-      '环境': '室内空间',
-      '无人': '有人(忽略此项)'
+      '环境': '室内',
+      '素材': '有人(忽略此项)'
     };
 
     const client = supabase.createClient(CONFIG.S_URL, CONFIG.S_KEY);
@@ -336,6 +339,7 @@
     const emptyState = document.getElementById('emptyState');
     const upInput = document.getElementById('upInput');
     const uploadBtn = document.getElementById('uploadBtn');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     const adminToggle = document.getElementById('adminToggle');
     const modelSelect = document.getElementById('modelSelect');
     const langToggle = document.getElementById('langToggle');
@@ -356,6 +360,7 @@
     let toastTimer = null;
 
     uploadBtn.addEventListener('click', openPicker);
+    clearFiltersBtn.addEventListener('click', resetAllFilters);
     adminToggle.addEventListener('click', () => setPage());
     modelSelect.addEventListener('change', (e) => {
       currentModel = e.target.value;
@@ -411,6 +416,7 @@
       document.title = currentLang === 'zh' ? 'PRO 创作工作站' : 'PRO Creation Station';
       langToggle.textContent = currentLang === 'zh' ? 'EN' : '中';
       document.getElementById('brandTitle').textContent = t('brandTitle');
+      clearFiltersBtn.textContent = t('clearFilters');
       document.getElementById('brandSubtitle').textContent = t('brandSubtitle');
       document.getElementById('uploadTitle').textContent = t('uploadTitle');
       document.getElementById('uploadSubtitle').textContent = t('uploadSubtitle');
@@ -673,25 +679,21 @@
     function normalizeTags(tags) {
       const result = {};
       const input = tags || {};
-      const hasNoPersonSignal = detectNoPerson(input);
+      const hasHuman = Boolean(input.__hasHuman);
 
-      DIMS.forEach(dim => {
-        const sourceValue = input[dim];
-        const candidates = Array.isArray(sourceValue)
-          ? sourceValue.map(v => String(v).trim()).filter(Boolean)
-          : typeof sourceValue === 'string' && sourceValue.trim()
-            ? sourceValue.split(/[，,、/|]/).map(v => v.trim()).filter(Boolean)
-            : [];
-
-        const allowed = DICTIONARY[dim];
-        let picked = candidates.find(v => allowed.includes(v)) || '';
-
-        if (hasNoPersonSignal && dim === '视角') picked = '非人视角';
-        if (hasNoPersonSignal && dim === '姿势') picked = '静物/空间';
-        if (!picked) picked = DEFAULT_TAGS[dim];
-
-        result[dim] = [picked];
-      });
+      if (hasHuman) {
+        result['视角'] = [pickAllowedTag(input['视角'], '视角', DEFAULT_TAGS['视角'])];
+        result['姿态'] = [pickAllowedTag(input['姿态'], '姿态', DEFAULT_TAGS['姿态'])];
+        result['景别'] = [pickAllowedTag(input['景别'], '景别', DEFAULT_TAGS['景别'])];
+        result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
+        result['素材'] = ['有人(忽略此项)'];
+      } else {
+        result['视角'] = ['无'];
+        result['姿态'] = ['无'];
+        result['景别'] = [pickAllowedTag(input['景别'], '景别', DEFAULT_TAGS['景别'])];
+        result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
+        result['素材'] = [pickAllowedTag(input['素材'], '素材', '纯景', ['商品', '店面', '纯景'])];
+      }
       return result;
     }
 
@@ -845,7 +847,7 @@
             content: [
               {
                 type: 'text',
-                text: `分析这张3:4参考图。严格只返回JSON，不要解释，不要markdown，不要代码块。格式固定为：{"tags":{"视角":[],"姿势":[],"景别":[],"环境":[],"无人":[]},"quote":"20字内模特引导话术","lens":"固定焦段档位"}。标签必须只从以下数组中选一个：视角=${JSON.stringify(DICTIONARY['视角'])}；姿势=${JSON.stringify(DICTIONARY['姿势'])}；景别=${JSON.stringify(DICTIONARY['景别'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；无人=${JSON.stringify(DICTIONARY['无人'])}。lens必须从${JSON.stringify(LENS_OPTIONS)}中选择一个。规则：1. 五个维度必须全部存在且每个数组只能有1个标签；2. 如果没有人物，视角必须返回“非人视角”，姿势必须返回“静物/空间”；3. 有人物时，无人维度返回“有人(忽略此项)”；4. quote少于20字。`
+                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"景别":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；景别=${JSON.stringify(DICTIONARY['景别'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：只识别视角/姿态/景别/环境，素材强制为“有人(忽略此项)”。2) 无人：视角与姿态返回“无”，只识别景别/环境/素材，素材只能是[商品,店面,纯景]。3) 每个维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
               },
               {
                 type: 'image_url',
@@ -943,7 +945,8 @@
     }
 
     function normalizeAI(aiData) {
-      const normalizedTags = normalizeTags(aiData.tags || {});
+      const hasHuman = parseHumanFlag(aiData);
+      const normalizedTags = normalizeTags({ ...(aiData.tags || {}), __hasHuman: hasHuman });
       return {
         tags: normalizedTags,
         quote: truncateText(String(aiData.quote || '眼神放松，肩线自然打开').replace(/["“”]/g, ''), 20),
@@ -953,17 +956,24 @@
 
     function validateStrictSingleChoice(aiData) {
       const rawTags = aiData && aiData.tags ? aiData.tags : {};
-      for (const dim of DIMS) {
+      const hasHuman = parseHumanFlag(aiData);
+      const mustSingle = ['景别', '环境', '素材'];
+      if (hasHuman) mustSingle.unshift('视角', '姿态');
+
+      for (const dim of mustSingle) {
         const value = rawTags[dim];
         const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
         const normalized = list.map(v => String(v).trim()).filter(Boolean);
-        if (normalized.length !== 1) {
-          return `维度${dim}不是单选结果`;
-        }
-        if (!DICTIONARY[dim].includes(normalized[0])) {
-          return `维度${dim}标签不在预设词典`;
-        }
+        if (normalized.length !== 1) return `维度${dim}不是单选结果`;
+        const allowed = dim === '素材' && !hasHuman ? ['商品', '店面', '纯景'] : DICTIONARY[dim];
+        if (!allowed.includes(normalized[0])) return `维度${dim}标签不在预设词典`;
       }
+
+      if (hasHuman) {
+        const m = Array.isArray(rawTags['素材']) ? rawTags['素材'][0] : rawTags['素材'];
+        if (m && String(m).trim() !== '有人(忽略此项)') return '有人场景素材维度必须为有人(忽略此项)';
+      }
+
       const lens = normalizeLensProfile(aiData && aiData.lens);
       if (!LENS_OPTIONS.includes(lens)) return '焦段档位非法';
       return '';
@@ -1096,7 +1106,19 @@
       subFilterPanel.classList.toggle('hidden', currentPage === 'admin');
       gridToggle.classList.toggle('hidden', currentPage === 'admin');
       gridToggle.style.display = currentPage === 'admin' ? 'none' : '';
+      clearFiltersBtn.classList.toggle('hidden', currentPage === 'admin');
       syncBatchBar();
+    }
+
+    function resetAllFilters() {
+      activeFilters = {};
+      selectedDim = '';
+      tagContainer.innerHTML = '';
+      subFilterPanel.classList.remove('open');
+      subFilterPanel.classList.add('border-transparent');
+      document.querySelectorAll('#dimNav .nav-tab').forEach(el => el.classList.remove('active'));
+      syncDimIndicators();
+      renderGallery();
     }
 
     function renderAdminLists() {
@@ -1472,23 +1494,32 @@
         ? 'rounded-full px-2.5 py-1 text-[10px] font-black'
         : 'rounded-full px-3 py-1.5 text-[11px] font-black';
 
-      return DIMS.flatMap(dim => (tags[dim] || []).map(tag => {
-        if (String(tag) === '有人(忽略此项)') return '';
+      const displayDims = getDisplayDims(tags);
+      return displayDims.flatMap(dim => (tags[dim] || []).map(tag => {
+        if (String(tag) === '有人(忽略此项)' || String(tag) === '无') return '';
         const cls = TAG_STYLE[dim] || 'bg-black text-white';
         return `<span class="${baseClass} ${cls}">${escapeHtml(tag)}</span>`;
       })).join('');
     }
 
-    function detectNoPerson(input) {
-      const rawValues = Object.values(input).flatMap(value => {
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string') return [value];
-        return [];
-      }).map(v => String(v).trim());
+    function getDisplayDims(tags) {
+      const material = (tags['素材'] || [])[0];
+      const isHumanScene = material === '有人(忽略此项)';
+      return isHumanScene ? ['视角', '姿态', '景别', '环境'] : ['景别', '环境', '素材'];
+    }
 
-      return rawValues.some(value =>
-        ['非人视角', '静物/空间', '商品', '店面'].includes(value)
-      );
+    function parseHumanFlag(aiData) {
+      const raw = aiData?.has_human ?? aiData?.hasHuman ?? aiData?.person_present;
+      if (typeof raw === 'boolean') return raw;
+      if (typeof raw === 'string') return ['true', 'yes', '1', '有人'].includes(raw.trim().toLowerCase());
+      return true;
+    }
+
+    function pickAllowedTag(value, dim, fallback, forceAllowed) {
+      const allowed = forceAllowed || DICTIONARY[dim];
+      const list = Array.isArray(value) ? value : (typeof value === 'string' ? value.split(/[，,、/|]/) : []);
+      const clean = list.map(v => String(v).trim()).filter(Boolean);
+      return clean.find(v => allowed.includes(v)) || fallback;
     }
 
     function sanitizeFileName(name) {
