@@ -3,26 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>PRO 拍摄执行系统 | 增强同步版</title>
+  <title>PRO 拍摄执行系统 | 习习 V2.0</title>
+  
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
   <style type="text/tailwindcss">
     @layer utilities {
       .masonry { column-count: 2; column-gap: 12px; }
       @screen md { .masonry { column-count: 3; column-gap: 16px; } }
-      .card { break-inside: avoid; margin-bottom: 12px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-      .nav-dim { @apply flex-1 text-center text-[11px] font-bold py-3 text-gray-400 border-b-2 border-transparent transition-all uppercase tracking-tighter; }
+      .card { break-inside: avoid; margin-bottom: 12px; }
+      .nav-dim { @apply flex-1 text-center text-[11px] font-bold py-3 text-gray-400 border-b-2 border-transparent transition-all uppercase tracking-tighter cursor-pointer; }
       .nav-dim.active { @apply text-black border-black; }
       .tag-pill { @apply px-3 py-1.5 rounded-full text-[11px] bg-gray-100 text-gray-600 border border-transparent transition-all; }
       .tag-pill.selected { @apply bg-black text-white shadow-md scale-105; }
       #subFilterPanel { transition: max-height 0.3s ease; max-height: 0; overflow: hidden; }
-      #subFilterPanel.open { max-height: 200px; border-bottom: 1px solid #f3f4f6; }
-      .grid-lines { @apply absolute inset-0 pointer-events-none opacity-0 transition-opacity; }
+      #subFilterPanel.open { max-height: 250px; border-bottom: 1px solid #f3f4f6; }
+      .grid-lines { @apply absolute inset-0 pointer-events-none opacity-0 transition-opacity z-10; }
       .grid-lines.show { @apply opacity-100; }
-      .grid-v { @apply absolute h-full border-l border-white/20; top: 0; }
-      .grid-h { @apply absolute w-full border-t border-white/20; left: 0; }
-      .progress-bar { @apply absolute bottom-0 left-0 h-1 bg-rose-500 transition-all duration-300; }
+      .grid-v { @apply absolute h-full border-l border-white/30; top: 0; }
+      .grid-h { @apply absolute w-full border-t border-white/30; left: 0; }
+      .upload-progress { @apply absolute bottom-0 left-0 h-1 bg-[#FF2442] transition-all duration-300; }
     }
   </style>
 </head>
@@ -32,9 +34,9 @@
   <div class="px-4 h-14 flex items-center justify-between">
     <div class="flex items-center gap-1.5">
       <div class="w-7 h-7 bg-black rounded flex items-center justify-center text-white text-[10px] font-black italic">PRO</div>
-      <span class="font-black tracking-tighter text-sm uppercase">Shooting Ref</span>
+      <span class="font-black tracking-tighter text-sm uppercase text-black">Shooting Ref</span>
     </div>
-    <button onclick="toggleGrid()" id="gridBtn" class="text-[10px] px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-full font-bold text-gray-500">GRID: OFF</button>
+    <button onclick="toggleGrid()" id="gridBtn" class="text-[10px] px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-full font-bold text-gray-500 uppercase">Grid: Off</button>
   </div>
   <div class="flex" id="dimNav">
     <button onclick="switchDim('交互', this)" class="nav-dim">交互</button>
@@ -43,11 +45,11 @@
     <button onclick="switchDim('环境', this)" class="nav-dim">环境</button>
     <button onclick="switchDim('其他', this)" class="nav-dim">其他</button>
   </div>
-  <div id="subFilterPanel" class="bg-white px-4"><div id="tagContainer" class="flex flex-wrap gap-2 py-3"></div></div>
+  <div id="subFilterPanel"><div id="tagContainer" class="flex flex-wrap gap-2 px-4 py-3"></div></div>
 </header>
 
 <main class="p-3 max-w-screen-xl mx-auto">
-  <label class="block mb-6 bg-white border-2 border-dashed border-gray-200 rounded-3xl py-10 text-center active:scale-95 transition-all cursor-pointer">
+  <label class="block mb-6 bg-white border-2 border-dashed border-gray-200 rounded-3xl py-12 text-center active:scale-95 transition-all cursor-pointer">
     <input type="file" id="upInput" accept="image/*" multiple class="hidden">
     <i class="fa fa-cloud-upload text-gray-300 text-3xl mb-2"></i>
     <p class="text-[10px] font-bold text-gray-400 tracking-widest uppercase">Tap to upload 3:4 photo</p>
@@ -55,8 +57,30 @@
   <div id="gallery" class="masonry"></div>
 </main>
 
+<div id="detailModal" class="fixed inset-0 z-[100] hidden bg-black flex flex-col">
+  <div class="absolute top-4 right-4 z-50">
+    <button onclick="closeModal()" class="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full text-white flex items-center justify-center"><i class="fa fa-times"></i></button>
+  </div>
+  <div class="flex-1 flex items-center justify-center relative p-4">
+    <div class="relative aspect-[3/4] h-full max-h-[70vh]">
+        <img id="modalImg" class="w-full h-full object-contain rounded-xl">
+        <div id="modalGrid" class="grid-lines absolute inset-0">
+            <div class="grid-v" style="left:33.3%"></div><div class="grid-v" style="left:66.6%"></div>
+            <div class="grid-h" style="top:33.3%"></div><div class="grid-h" style="top:66.6%"></div>
+        </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-t-[40px] p-8 shadow-2xl">
+    <div class="flex justify-between items-center mb-6">
+      <div id="modalTags" class="flex flex-wrap gap-2"></div>
+      <span id="modalLens" class="text-[11px] font-black bg-gray-100 px-3 py-1 rounded-lg text-gray-500 tracking-tighter uppercase">--MM</span>
+    </div>
+    <p class="text-[10px] text-gray-300 font-black uppercase tracking-[0.2em] mb-3">Professional Shooting Instruction</p>
+    <div id="modalQuote" class="text-xl font-bold text-black leading-tight italic">“获取指令中...”</div>
+  </div>
+</div>
+
 <script>
-// ========== 配置 (请确认与你的账户一致) ==========
 const CONFIG = {
   S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co", 
   S_KEY: "sb_publishable_tDg0y9w1HZFb_oV5Gb7VHg_Sh_g-1Cf",
@@ -67,131 +91,98 @@ const CONFIG = {
 const _client = supabase.createClient(CONFIG.S_URL, CONFIG.S_KEY);
 let _items = [];
 let _selectedTags = new Set();
-let _currentDim = '';
 let _showGrid = false;
 
-const DICTIONARY = {
-  '交互': ['看镜头', '不看镜头', '背影', '侧颜', '遮脸'],
-  '姿势': ['站立', '坐姿', '蹲姿', '走动', '靠坐'],
-  '景别': ['全身', '半身', '特写', '局部'],
-  '环境': ['晴天强光', '阴柔光', '夜景霓虹', '室内空间', '雨天氛围'],
-  '其他': ['虚化', '细节', '道具', '对比', '情绪']
-};
+const DICTIONARY = { '交互': ['看镜头', '不看镜头', '背影', '侧颜', '遮脸'], '姿势': ['站立', '坐姿', '蹲姿', '走动', '靠坐'], '景别': ['全身', '半身', '特写', '局部'], '环境': ['晴天强光', '阴柔光', '夜景霓虹', '室内空间', '雨天氛围'], '其他': ['虚化', '细节', '道具', '对比', '情绪'] };
 
 window.onload = async () => {
-  const { data, error } = await _client.from('inspirations').select('*').order('created_at', { ascending: false });
+  const { data } = await _client.from('inspirations').select('*').order('created_at', { ascending: false });
   if (data) { _items = data; renderGallery(); }
 };
 
-// ========== 上传逻辑（带状态感知） ==========
 document.getElementById('upInput').addEventListener('change', async (e) => {
   const files = Array.from(e.target.files);
   for (const file of files) {
     const tempId = 't-' + Math.random().toString(36).substr(2, 5);
     renderPlaceholder(tempId, URL.createObjectURL(file));
-    
-    const updateStatus = (status, progress = 0) => {
-      const el = document.getElementById(tempId);
-      if (el) {
-        el.querySelector('.status-text').innerText = status;
-        el.querySelector('.progress-bar').style.width = progress + '%';
-      }
-    };
+    const pBar = document.querySelector(`#${tempId} .upload-progress`);
+    const statusTxt = document.querySelector(`#${tempId} .status-text`);
 
     try {
-      // 1. 上传图片到 Storage
-      updateStatus('Uploading...', 30);
       const fileName = `${Date.now()}-${file.name.replace(/[^\x00-\x7F]/g, "")}`;
-      const { data: uploadData, error: upErr } = await _client.storage.from(CONFIG.BUCKET).upload(fileName, file);
-      if (upErr) throw new Error("Storage失败: " + upErr.message);
+      // 1. 上传图片 (含进度条)
+      const { data: uploadData, error: upError } = await _client.storage.from(CONFIG.BUCKET).upload(fileName, file, {
+        onUploadProgress: (p) => { pBar.style.width = `${(p.loaded/p.total)*100}%`; }
+      });
+      if(upError) throw new Error("存储服务连接失败");
 
       const { data: { publicUrl } } = _client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName);
       
       // 2. AI 识别
-      updateStatus('AI Analyzing...', 60);
+      statusTxt.innerText = "AI 语义解析中...";
       const b64 = await toB64(file);
       const aiData = await getAI(b64);
 
       // 3. 写入数据库
-      updateStatus('Finalizing...', 90);
-      const { data: db, error: dbErr } = await _client.from('inspirations').insert([{ 
-        image_url: publicUrl, 
-        storage_path: fileName, // 记录路径，方便后续同步删除
-        tags: aiData.tags, 
-        quote: aiData.quote, 
-        lens: aiData.lens 
+      const { data: db, error: dbError } = await _client.from('inspirations').insert([{ 
+        image_url: publicUrl, storage_path: fileName,
+        tags: aiData.tags, quote: aiData.quote, lens: aiData.lens 
       }]).select();
-      
-      if (dbErr) throw new Error("DB写入失败: " + dbErr.message);
+      if(dbError) throw new Error("数据保存失败");
 
-      // 4. 完成
       _items.unshift(db[0]);
-      document.getElementById(tempId).remove();
+      document.getElementById(tempId)?.remove();
       renderCard(db[0]);
     } catch (err) {
-      console.error(err);
-      const el = document.getElementById(tempId);
-      if(el) {
-        el.querySelector('.status-text').innerText = "FAILED";
-        el.querySelector('.status-text').className = "status-text text-[10px] font-bold text-rose-500";
-        alert(err.message);
-      }
+      statusTxt.innerText = `失败: ${err.message}`;
+      statusTxt.classList.replace('text-gray-400', 'text-red-500');
+      pBar.style.backgroundColor = '#ef4444';
     }
   }
 });
 
 async function getAI(base64) {
-  const prompt = `分析此3:4摄影参考图，输出JSON: tags:{交互,姿势,景别,环境,其他}, quote:动作指令, lens:焦段`;
-  const res = await fetch("https://api.bltcy.ai/v1/chat/completions", {
-    method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${CONFIG.K_KEY}` },
-    body: JSON.stringify({
-      model: "kimi-k2.5",
-      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: base64 } }]}],
-      response_format: { type: "json_object" }
-    })
-  });
-  if (!res.ok) throw new Error("Kimi API 响应异常");
-  const j = await res.json();
-  return JSON.parse(j.choices[0].message.content);
+  try {
+    const res = await fetch("https://api.bltcy.ai/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${CONFIG.K_KEY}` },
+      body: JSON.stringify({
+        model: "kimi-k2.5",
+        messages: [{ role: "user", content: [{ type: "text", text: "分析此3:4图,输出JSON: tags:{交互,姿势,景别,环境,其他}, quote:给模特的话术, lens:焦段数字" }, { type: "image_url", image_url: { url: base64 } }]}],
+        response_format: { type: "json_object" }
+      })
+    });
+    const j = await res.json();
+    return JSON.parse(j.choices[0].message.content);
+  } catch (e) { throw new Error("AI 接口响应异常"); }
 }
 
-// ========== 渲染逻辑 ==========
-function renderPlaceholder(id, url) {
-  const div = document.createElement('div');
-  div.id = id; div.className = 'card animate-pulse';
-  div.innerHTML = `
-    <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 relative shadow-sm">
-      <div class="aspect-[3/4] bg-gray-100 flex items-center justify-center relative">
-        <img src="${url}" class="w-full h-full object-cover opacity-20">
-        <div class="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <i class="fa fa-circle-o-notch fa-spin text-gray-400"></i>
-            <span class="status-text text-[9px] font-black text-gray-400 uppercase tracking-widest">Processing</span>
-        </div>
-        <div class="progress-bar" style="width: 0%"></div>
-      </div>
-    </div>
-  `;
-  document.getElementById('gallery').prepend(div);
+function openDetail(id) {
+  const item = _items.find(x => x.id == id);
+  if(!item) return;
+  document.getElementById('modalImg').src = item.image_url;
+  document.getElementById('modalQuote').innerText = `“${item.quote}”`;
+  document.getElementById('modalLens').innerText = `${item.lens}MM`;
+  const cls = { '交互':'bg-rose-400', '姿势':'bg-violet-400', '景别':'bg-blue-400', '环境':'bg-amber-400', '其他':'bg-emerald-400' };
+  document.getElementById('modalTags').innerHTML = Object.entries(item.tags).filter(([k,v]) => v).map(([k,v]) => `<span class="px-2.5 py-1 rounded-md text-[10px] text-white font-bold ${cls[k]}">${v}</span>`).join('');
+  document.getElementById('detailModal').classList.remove('hidden');
+  document.getElementById('modalGrid').classList.toggle('show', _showGrid);
+  document.body.style.overflow = 'hidden';
 }
+
+function closeModal() { document.getElementById('detailModal').classList.add('hidden'); document.body.style.overflow = 'auto'; }
 
 function renderCard(item) {
   const div = document.createElement('div');
-  div.id = item.id; div.className = 'card group cursor-zoom-in';
-  div.onclick = () => alert(`引导语: ${item.quote}\n焦段: ${item.lens}`);
-  
+  div.id = item.id; div.className = 'card cursor-pointer active:scale-95 transition-transform';
+  div.onclick = () => openDetail(item.id);
   const cls = { '交互':'bg-rose-400', '姿势':'bg-violet-400', '景别':'bg-blue-400', '环境':'bg-amber-400', '其他':'bg-emerald-400' };
-  let tagH = '';
-  Object.entries(item.tags).forEach(([k, v]) => { if(v) tagH += `<span class="px-1.5 py-0.5 rounded text-[9px] text-white font-bold mr-1 ${cls[k]}">${v}</span>`; });
+  let tagH = Object.entries(item.tags).filter(([k,v]) => v).map(([k,v]) => `<span class="px-1.5 py-0.5 rounded text-[9px] text-white font-bold mr-1 ${cls[k]}">${v}</span>`).join('');
 
   div.innerHTML = `
-    <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 relative shadow-sm hover:shadow-lg transition-all">
-      <div class="aspect-[3/4] relative bg-gray-50">
-        <img src="${item.image_url}" class="w-full h-full object-cover block" loading="lazy">
-        <div class="grid-lines ${ _showGrid ? 'show' : '' }">
-            <div class="grid-v" style="left:33.3%"></div><div class="grid-v" style="left:66.6%"></div>
-            <div class="grid-h" style="top:33.3%"></div><div class="grid-h" style="top:66.6%"></div>
-        </div>
-        <button onclick="event.stopPropagation(); deleteItem('${item.id}', '${item.storage_path}')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa fa-trash-o text-xs"></i></button>
+    <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 relative shadow-sm">
+      <div class="aspect-[3/4] relative">
+        <img src="${item.image_url}" class="w-full h-full object-cover block">
+        <div class="grid-lines ${ _showGrid ? 'show' : '' }"><div class="grid-v" style="left:33.3%"></div><div class="grid-v" style="left:66.6%"></div><div class="grid-h" style="top:33.3%"></div><div class="grid-h" style="top:66.6%"></div></div>
       </div>
       <div class="p-2.5 flex flex-wrap gap-y-1">${tagH}</div>
     </div>
@@ -199,70 +190,55 @@ function renderCard(item) {
   document.getElementById('gallery').prepend(div);
 }
 
-// ========== 同步删除逻辑 ==========
-async function deleteItem(id, path) {
-  if(!confirm("确定要永久删除此参考图（包括云端存储的文件）吗？")) return;
-  
-  try {
-    // 1. 从 Database 删除记录
-    const { error: dbErr } = await _client.from('inspirations').delete().eq('id', id);
-    if (dbErr) throw dbErr;
-
-    // 2. 从 Storage 删除物理文件 (实现真正的同步)
-    if (path) {
-      const { error: stErr } = await _client.storage.from(CONFIG.BUCKET).remove([path]);
-      if (stErr) console.warn("Bucket文件删除失败(可能路径记录不全):", stErr.message);
-    }
-
-    document.getElementById(id).remove();
-    _items = _items.filter(x => x.id !== id);
-    alert("已同步删除：数据库记录 + Bucket文件");
-  } catch (err) {
-    alert("删除失败: " + err.message);
-  }
+function renderPlaceholder(id, url) {
+  const div = document.createElement('div');
+  div.id = id; div.className = 'card';
+  div.innerHTML = `
+    <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 aspect-[3/4] relative bg-gray-50">
+      <img src="${url}" class="w-full h-full object-cover opacity-20">
+      <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
+        <span class="status-text text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Uploading...</span>
+        <div class="w-full h-1 bg-gray-100 rounded-full overflow-hidden relative">
+          <div class="upload-progress w-0"></div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('gallery').prepend(div);
 }
 
-// ========== 筛选与其他逻辑 (保持原样) ==========
+function toggleGrid() {
+  _showGrid = !_showGrid;
+  document.getElementById('gridBtn').innerText = _showGrid ? 'Grid: On' : 'Grid: Off';
+  document.querySelectorAll('.grid-lines').forEach(el => el.classList.toggle('show', _showGrid));
+}
+
 function switchDim(dim, btn) {
   const panel = document.getElementById('subFilterPanel');
   const container = document.getElementById('tagContainer');
-  if (_currentDim === dim) { panel.classList.remove('open'); _currentDim = ''; btn.classList.remove('active'); return; }
-  _currentDim = dim;
+  if (document.querySelector('.nav-dim.active') === btn) { panel.classList.remove('open'); btn.classList.remove('active'); return; }
   document.querySelectorAll('.nav-dim').forEach(el => el.classList.remove('active'));
   btn.classList.add('active');
-  container.innerHTML = '';
-  DICTIONARY[dim].forEach(tag => {
-    const pill = document.createElement('button');
-    pill.className = `tag-pill ${ _selectedTags.has(tag) ? 'selected' : '' }`;
-    pill.innerText = tag;
-    pill.onclick = () => { _selectedTags.has(tag) ? _selectedTags.delete(tag) : _selectedTags.add(tag); pill.classList.toggle('selected'); applyFilters(); };
-    container.appendChild(pill);
-  });
+  container.innerHTML = DICTIONARY[dim].map(tag => `<button onclick="toggleTag('${tag}', this)" class="tag-pill ${_selectedTags.has(tag)?'selected':''}">${tag}</button>`).join('');
   panel.classList.add('open');
+}
+
+function toggleTag(tag, btn) {
+  _selectedTags.has(tag) ? _selectedTags.delete(tag) : _selectedTags.add(tag);
+  btn.classList.toggle('selected');
+  applyFilters();
 }
 
 function applyFilters() {
   _items.forEach(item => {
     const el = document.getElementById(item.id);
     if (!el) return;
-    const itemTags = Object.values(item.tags).flat();
-    const match = _selectedTags.size === 0 || Array.from(_selectedTags).every(t => itemTags.includes(t));
+    const match = _selectedTags.size === 0 || Array.from(_selectedTags).every(t => Object.values(item.tags).includes(t));
     el.style.display = match ? 'block' : 'none';
   });
 }
 
-function renderGallery() {
-  const g = document.getElementById('gallery'); g.innerHTML = '';
-  _items.forEach(i => renderCard(i));
-}
-
-function toggleGrid() {
-  _showGrid = !_showGrid;
-  document.getElementById('gridBtn').innerText = _showGrid ? 'GRID: ON' : 'GRID: OFF';
-  document.querySelectorAll('.grid-lines').forEach(el => el.classList.toggle('show', _showGrid));
-}
-
-function toB64(f) { return new Promise((r, j) => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload = () => r(rd.result); rd.onerror = j; }); }
+function renderGallery() { document.getElementById('gallery').innerHTML = ''; _items.forEach(i => renderCard(i)); }
+function toB64(f) { return new Promise((r) => { const rd = new FileReader(); rd.readAsDataURL(f); rd.onload = () => r(rd.result); }); }
 </script>
 </body>
 </html>
