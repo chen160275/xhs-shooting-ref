@@ -315,9 +315,18 @@
     }
 
     async function insertInspirationRecord(payload) {
+      const tagsAsObject = payload.tags;
+      const tagsAsString = JSON.stringify(payload.tags);
       const attempts = [
-        payload,
-        { ...payload, tags: JSON.stringify(payload.tags) }
+        { ...payload, tags: tagsAsObject },
+        { ...payload, tags: tagsAsString },
+        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote, lens: payload.lens },
+        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote, lens: payload.lens },
+        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote },
+        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote },
+        { image_url: payload.image_url, tags: tagsAsObject },
+        { image_url: payload.image_url, tags: tagsAsString },
+        { image_url: payload.image_url }
       ];
 
       let lastError = null;
@@ -331,23 +340,15 @@
         if (!error) return data;
 
         lastError = error;
-        const message = String(error.message || '').toLowerCase();
-        const details = String(error.details || '').toLowerCase();
-        const hint = String(error.hint || '').toLowerCase();
-        const isTagsTypeIssue =
-          message.includes('tags') ||
-          details.includes('tags') ||
-          hint.includes('tags') ||
-          message.includes('json') ||
-          details.includes('json');
-
-        if (!isTagsTypeIssue) break;
+        console.error('DB insert attempt failed:', { candidate, error });
       }
 
       const detailParts = [
+        lastError?.code,
         lastError?.message,
         lastError?.details,
-        lastError?.hint
+        lastError?.hint,
+        lastError?.status ? `status ${lastError.status}` : ''
       ].filter(Boolean);
 
       throw new Error(detailParts[0] ? `DB: ${detailParts.join(' | ')}` : 'DB Error');
