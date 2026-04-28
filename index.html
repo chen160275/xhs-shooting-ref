@@ -457,9 +457,7 @@
     async function onUploadChange(e) {
       const files = Array.from(e.target.files || []);
       if (!files.length) return;
-      for (const file of files) {
-        await uploadSingle(file);
-      }
+      await Promise.allSettled(files.map(file => uploadSingle(file)));
       upInput.value = '';
     }
 
