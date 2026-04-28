@@ -88,7 +88,7 @@
       <div id="dimNav" class="flex px-1">
         <button class="nav-tab" data-dim="视角">视角</button>
         <button class="nav-tab" data-dim="姿态">姿态</button>
-        <button class="nav-tab" data-dim="景别">景别</button>
+        <button class="nav-tab" data-dim="构图">构图</button>
         <button class="nav-tab" data-dim="环境">环境</button>
         <button class="nav-tab" data-dim="素材">素材</button>
       </div>
@@ -116,8 +116,11 @@
             <div id="adminTitle" class="text-sm font-black uppercase tracking-tight">Media Management</div>
             <div id="adminSubtitle" class="mt-1 text-[11px] text-gray-400">Manage synced cloud assets and retry failed AI jobs</div>
           </div>
-          <select id="modelSelect" class="max-w-[180px] rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-bold text-gray-600">
-          </select>
+          <div class="flex items-center gap-2">
+            <button id="queueToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">暂停</button>
+            <select id="modelSelect" class="max-w-[180px] rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-bold text-gray-600">
+            </select>
+          </div>
         </div>
       </section>
 
@@ -216,10 +219,10 @@
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning'];
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
-    const DIMS = ['视角', '姿态', '景别', '环境', '素材'];
+    const DIMS = ['视角', '姿态', '构图', '环境', '素材'];
     const DIM_LABELS = {
-      zh: { '视角': '视角', '姿态': '姿态', '景别': '景别', '环境': '环境', '素材': '素材' },
-      en: { '视角': 'Angle', '姿态': 'Pose', '景别': 'Framing', '环境': 'Light', '素材': 'Material' }
+      zh: { '视角': '视角', '姿态': '姿态', '构图': '构图', '环境': '环境', '素材': '素材' },
+      en: { '视角': 'Angle', '姿态': 'Pose', '构图': 'Framing', '环境': 'Light', '素材': 'Material' }
     };
     const I18N = {
       zh: {
@@ -258,7 +261,11 @@
         gridOff: '网格：关',
         uploading: '上传中...',
         uploadingCloud: '上传至云端中...',
-        aiParsing: 'AI 语义解析中...'
+        aiParsing: 'AI 语义解析中...',
+        queuePause: '暂停',
+        queueResume: '继续',
+        queuedStandby: '待命',
+        duplicateFile: '文件名重复，已拦截上传'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -296,27 +303,31 @@
         gridOff: 'Grid: Off',
         uploading: 'Uploading...',
         uploadingCloud: 'Uploading to cloud...',
-        aiParsing: 'AI parsing...'
+        aiParsing: 'AI parsing...',
+        queuePause: 'Pause',
+        queueResume: 'Resume',
+        queuedStandby: 'Standby',
+        duplicateFile: 'Duplicate filename, upload blocked'
       }
     };
     const DICTIONARY = {
       '视角': ['正面', '侧面', '背面', '俯拍', '仰拍'],
       '姿态': ['站姿', '坐姿', '蹲跪', '动态', '躺卧'],
-      '景别': ['全身', '七分', '半身', '特写'],
+      '构图': ['全身', '七分', '半身', '特写'],
       '环境': ['日光', '柔光', '室内', '夜景', '黄昏'],
       '素材': ['商品', '店面', '纯景', '有人(忽略此项)']
     };
     const TAG_STYLE = {
       '视角': 'bg-black text-white',
       '姿态': 'bg-[#111827] text-white',
-      '景别': 'bg-[#374151] text-white',
+      '构图': 'bg-[#374151] text-white',
       '环境': 'bg-[#6B7280] text-white',
       '素材': 'bg-[#9CA3AF] text-white'
     };
     const DEFAULT_TAGS = {
       '视角': '正面',
       '姿态': '站姿',
-      '景别': '半身',
+      '构图': '半身',
       '环境': '室内',
       '素材': '有人(忽略此项)'
     };
@@ -342,6 +353,7 @@
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     const adminToggle = document.getElementById('adminToggle');
     const modelSelect = document.getElementById('modelSelect');
+    const queueToggleBtn = document.getElementById('queueToggleBtn');
     const langToggle = document.getElementById('langToggle');
     const gridToggle = document.getElementById('gridToggle');
     const modalGridToggle = document.getElementById('modalGridToggle');
@@ -358,6 +370,11 @@
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
     const toast = document.getElementById('toast');
     let toastTimer = null;
+    let isQueuePaused = false;
+    const pendingTasks = [];
+    const MAX_CONCURRENT_UPLOADS = 3;
+    let activeTaskCount = 0;
+    const pendingFileNames = new Set();
 
     uploadBtn.addEventListener('click', openPicker);
     clearFiltersBtn.addEventListener('click', resetAllFilters);
@@ -366,6 +383,7 @@
       currentModel = e.target.value;
       localStorage.setItem(MODEL_KEY, currentModel);
     });
+    queueToggleBtn.addEventListener('click', toggleQueuePause);
     batchRetryBtn.addEventListener('click', batchRetrySelected);
     batchDeleteBtn.addEventListener('click', batchDeleteSelected);
     langToggle.addEventListener('click', toggleLanguage);
@@ -431,6 +449,7 @@
       modelSelect.setAttribute('aria-label', t('modelLabel'));
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
+      queueToggleBtn.textContent = isQueuePaused ? t('queueResume') : t('queuePause');
       const modalQuoteEl = document.getElementById('modalQuote');
       if (!modalQuoteEl.textContent.replace(/[“”"]/g, '').trim() || modalQuoteEl.textContent.includes('等待内容') || modalQuoteEl.textContent.includes('Waiting for content')) {
         modalQuoteEl.textContent = `“${t('modalQuoteFallback')}”`;
@@ -457,14 +476,43 @@
     async function onUploadChange(e) {
       const files = Array.from(e.target.files || []);
       if (!files.length) return;
-      await Promise.allSettled(files.map(file => uploadSingle(file)));
+      files.forEach(file => enqueueUploadTask(file));
+      processUploadQueue();
       upInput.value = '';
     }
 
-    async function uploadSingle(file) {
+    function enqueueUploadTask(file) {
       const tempId = 'tmp_' + Date.now() + Math.random().toString(36).slice(2, 7);
       const previewUrl = URL.createObjectURL(file);
-      renderQueueItem({ id: tempId, previewUrl, status: t('uploading') });
+      pendingTasks.push({ file, tempId, previewUrl });
+      renderQueueItem({ id: tempId, previewUrl, status: isQueuePaused ? t('queuedStandby') : t('uploading') });
+    }
+
+    function toggleQueuePause() {
+      isQueuePaused = !isQueuePaused;
+      queueToggleBtn.textContent = isQueuePaused ? t('queueResume') : t('queuePause');
+      if (isQueuePaused) {
+        pendingTasks.forEach(task => updateQueueItem(task.tempId, { status: t('queuedStandby') }));
+      } else {
+        processUploadQueue();
+      }
+    }
+
+    function processUploadQueue() {
+      if (isQueuePaused) return;
+      while (!isQueuePaused && activeTaskCount < MAX_CONCURRENT_UPLOADS && pendingTasks.length) {
+        const task = pendingTasks.shift();
+        activeTaskCount += 1;
+        uploadSingle(task.file, task.tempId, task.previewUrl)
+          .finally(() => {
+            activeTaskCount = Math.max(0, activeTaskCount - 1);
+            processUploadQueue();
+          });
+      }
+    }
+
+    async function uploadSingle(file, tempId, previewUrl) {
+      updateQueueItem(tempId, { status: t('uploading') });
       let fileName = '';
       let publicUrl = '';
 
@@ -472,7 +520,9 @@
         const compressedBase64 = await compressToBase64(file, 800, 0.82);
         updateQueueItem(tempId, { status: t('uploadingCloud') });
 
-        fileName = `${Date.now()}-${sanitizeFileName(file.name || 'image.jpg')}.jpg`;
+        fileName = `${sanitizeFileName(file.name || 'image')}.jpg`;
+        await ensureUniqueFileName(fileName);
+        pendingFileNames.add(fileName);
         const uploadBlob = dataUrlToBlob(compressedBase64);
         const uploadResult = await uploadToSupabase(fileName, uploadBlob, (progress) => {
           updateQueueItem(tempId, { progress });
@@ -509,6 +559,7 @@
         }
         persistCache();
         removeQueueItem(tempId);
+        pendingFileNames.delete(fileName);
         renderGallery();
         renderAdminLists();
       } catch (error) {
@@ -534,6 +585,7 @@
           error: true
         });
         removeQueueItem(tempId);
+        if (fileName) pendingFileNames.delete(fileName);
         renderGallery();
         renderAdminLists();
       }
@@ -682,14 +734,14 @@
       if (hasHuman) {
         result['视角'] = [pickAllowedTag(input['视角'], '视角', DEFAULT_TAGS['视角'])];
         result['姿态'] = [pickAllowedTag(input['姿态'], '姿态', DEFAULT_TAGS['姿态'])];
-        result['景别'] = [pickAllowedTag(input['景别'], '景别', DEFAULT_TAGS['景别'])];
+        result['构图'] = [pickAllowedTag(input['构图'] || input['景别'], '构图', DEFAULT_TAGS['构图'])];
         result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
         result['素材'] = ['有人(忽略此项)'];
       } else {
         result['视角'] = ['无'];
         result['姿态'] = ['无'];
-        result['景别'] = [pickAllowedTag(input['景别'], '景别', DEFAULT_TAGS['景别'])];
-        result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
+        result['构图'] = ['无'];
+        result['环境'] = ['无'];
         result['素材'] = [pickAllowedTag(input['素材'], '素材', '纯景', ['商品', '店面', '纯景'])];
       }
       return result;
@@ -773,7 +825,10 @@
         <img src="${previewUrl}" class="h-full w-full object-cover opacity-60">
         <div class="absolute left-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[7px] font-bold text-white">${modelText}</div>
         <div class="absolute inset-x-0 bottom-0 h-1 bg-black/10"><div class="progress-fill h-full w-0 bg-[#FF2442]"></div></div>
-        <div class="absolute inset-0 flex items-center justify-center bg-white/60 px-1 text-center text-[8px] font-bold text-gray-700 status-text">${status}</div>
+        <div class="absolute inset-0 flex flex-col items-center justify-center bg-white/60 px-1 text-center">
+          <div class="status-text text-[8px] font-bold text-gray-700">${status}</div>
+          <div class="percent-text text-[8px] font-bold text-gray-500">0%</div>
+        </div>
       `;
       queueStrip.prepend(card);
     }
@@ -783,10 +838,15 @@
       if (!root) return;
       const progressEl = root.querySelector('.progress-fill');
       const statusEl = root.querySelector('.status-text');
-      if (typeof progress === 'number' && progressEl) progressEl.style.width = `${progress}%`;
+      const percentEl = root.querySelector('.percent-text');
+      if (typeof progress === 'number' && progressEl) {
+        const pct = Math.max(0, Math.min(100, Math.round(progress)));
+        progressEl.style.width = `${pct}%`;
+        if (percentEl) percentEl.textContent = `${pct}%`;
+      }
       if (status && statusEl) {
         statusEl.textContent = status;
-        statusEl.className = `absolute inset-0 flex items-center justify-center bg-white/60 px-1 text-center text-[8px] font-bold status-text ${error ? 'text-redx' : 'text-gray-700'}`;
+        statusEl.className = `status-text text-[8px] font-bold ${error ? 'text-redx' : 'text-gray-700'}`;
       }
     }
 
@@ -829,6 +889,26 @@
       return uploadPromise;
     }
 
+    async function ensureUniqueFileName(fileName) {
+      if (pendingFileNames.has(fileName)) {
+        window.alert(`${t('duplicateFile')}: ${fileName}`);
+        throw new Error(`Duplicate File: ${fileName}`);
+      }
+      const { data, error } = await client
+        .from('inspirations')
+        .select('id')
+        .eq('storage_path', fileName)
+        .limit(1);
+      if (error) {
+        console.error('Filename dedupe check failed:', error);
+        return;
+      }
+      if (Array.isArray(data) && data.length > 0) {
+        window.alert(`${t('duplicateFile')}: ${fileName}`);
+        throw new Error(`Duplicate File: ${fileName}`);
+      }
+    }
+
     async function requestAI(base64) {
       const response = await fetch(CONFIG.K_URL, {
         method: 'POST',
@@ -845,7 +925,7 @@
             content: [
               {
                 type: 'text',
-                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"景别":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；景别=${JSON.stringify(DICTIONARY['景别'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：只识别视角/姿态/景别/环境，素材强制为“有人(忽略此项)”。2) 无人：视角与姿态返回“无”，只识别景别/环境/素材，素材只能是[商品,店面,纯景]。3) 每个维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
+                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"构图":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；构图=${JSON.stringify(DICTIONARY['构图'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：只识别视角/姿态/构图/环境，素材强制为“有人(忽略此项)”。2) 无人：视角/姿态/构图/环境都返回“无”，素材只能从[商品,店面,纯景]选择1个。3) 每个维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
               },
               {
                 type: 'image_url',
@@ -955,8 +1035,8 @@
     function validateStrictSingleChoice(aiData) {
       const rawTags = aiData && aiData.tags ? aiData.tags : {};
       const hasHuman = parseHumanFlag(aiData);
-      const mustSingle = ['景别', '环境', '素材'];
-      if (hasHuman) mustSingle.unshift('视角', '姿态');
+      const mustSingle = ['素材'];
+      if (hasHuman) mustSingle.unshift('视角', '姿态', '构图', '环境');
 
       for (const dim of mustSingle) {
         const value = rawTags[dim];
@@ -970,6 +1050,16 @@
       if (hasHuman) {
         const m = Array.isArray(rawTags['素材']) ? rawTags['素材'][0] : rawTags['素材'];
         if (m && String(m).trim() !== '有人(忽略此项)') return '有人场景素材维度必须为有人(忽略此项)';
+      } else {
+        const clearDims = ['视角', '姿态', '构图', '环境'];
+        for (const dim of clearDims) {
+          const value = rawTags[dim];
+          const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
+          const normalized = list.map(v => String(v).trim()).filter(Boolean);
+          if (!(normalized.length === 1 && normalized[0] === '无')) {
+            return `无人场景维度${dim}必须为无`;
+          }
+        }
       }
 
       const lens = normalizeLensProfile(aiData && aiData.lens);
@@ -1503,7 +1593,7 @@
     function getDisplayDims(tags) {
       const material = (tags['素材'] || [])[0];
       const isHumanScene = material === '有人(忽略此项)';
-      return isHumanScene ? ['视角', '姿态', '景别', '环境'] : ['景别', '环境', '素材'];
+      return isHumanScene ? ['视角', '姿态', '构图', '环境'] : ['素材'];
     }
 
     function parseHumanFlag(aiData) {
