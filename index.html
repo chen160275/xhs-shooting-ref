@@ -256,8 +256,7 @@
           lens: normalized.lens
         };
 
-        const { data, error } = await client.from('inspirations').insert([payload]).select().single();
-        if (error) throw new Error('DB Error');
+        const data = await insertInspirationRecord(payload);
 
         const item = normalizeItem(data, previewUrl);
         items.unshift(item);
@@ -265,6 +264,7 @@
         document.getElementById(tempId)?.remove();
         renderGallery();
       } catch (error) {
+        console.error('上传链路失败:', error);
         updatePlaceholder(tempId, {
           status: error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message,
           error: true
@@ -307,11 +307,63 @@
         id: row.id,
         image_url: row.image_url || fallbackPreview || '',
         storage_path: row.storage_path || '',
-        tags: normalizeTags(row.tags || {}),
+        tags: normalizeTags(parseTagsField(row.tags)),
         quote: typeof row.quote === 'string' && row.quote.trim() ? row.quote.trim() : '下巴微抬，眼神更松一点',
         lens: normalizeLens(row.lens),
         created_at: row.created_at || new Date().toISOString()
       };
+    }
+
+    async function insertInspirationRecord(payload) {
+      const attempts = [
+        payload,
+        { ...payload, tags: JSON.stringify(payload.tags) }
+      ];
+
+      let lastError = null;
+      for (const candidate of attempts) {
+        const { data, error } = await client
+          .from('inspirations')
+          .insert([candidate])
+          .select()
+          .single();
+
+        if (!error) return data;
+
+        lastError = error;
+        const message = String(error.message || '').toLowerCase();
+        const details = String(error.details || '').toLowerCase();
+        const hint = String(error.hint || '').toLowerCase();
+        const isTagsTypeIssue =
+          message.includes('tags') ||
+          details.includes('tags') ||
+          hint.includes('tags') ||
+          message.includes('json') ||
+          details.includes('json');
+
+        if (!isTagsTypeIssue) break;
+      }
+
+      const detailParts = [
+        lastError?.message,
+        lastError?.details,
+        lastError?.hint
+      ].filter(Boolean);
+
+      throw new Error(detailParts[0] ? `DB: ${detailParts.join(' | ')}` : 'DB Error');
+    }
+
+    function parseTagsField(value) {
+      if (!value) return {};
+      if (typeof value === 'object') return value;
+      if (typeof value === 'string') {
+        try {
+          return JSON.parse(value);
+        } catch (error) {
+          return {};
+        }
+      }
+      return {};
     }
 
     function normalizeTags(tags) {
