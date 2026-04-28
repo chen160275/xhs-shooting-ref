@@ -79,7 +79,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <button id="adminToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Dashboard</button>
+          <button id="adminToggle" class="min-w-[52px] rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold tracking-wide text-gray-700">Dashboard</button>
           <button id="langToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">EN</button>
           <button id="gridToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Grid: Off</button>
         </div>
@@ -1085,12 +1085,13 @@
       homePage.classList.toggle('hidden', currentPage !== 'home');
       adminPage.classList.toggle('hidden', currentPage !== 'admin');
       adminToggle.textContent = currentPage === 'admin' ? '首页' : t('adminToggle');
-      adminToggle.classList.toggle('bg-black', currentPage === 'admin');
-      adminToggle.classList.toggle('text-white', currentPage === 'admin');
-      adminToggle.classList.toggle('border-black', currentPage === 'admin');
+      adminToggle.className = currentPage === 'admin'
+        ? 'min-w-[52px] rounded-full border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold tracking-wide text-gray-800'
+        : 'min-w-[52px] rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold tracking-wide text-gray-700';
       document.getElementById('dimNav').classList.toggle('hidden', currentPage === 'admin');
       subFilterPanel.classList.toggle('hidden', currentPage === 'admin');
       gridToggle.classList.toggle('hidden', currentPage === 'admin');
+      gridToggle.style.display = currentPage === 'admin' ? 'none' : '';
       syncBatchBar();
     }
 
