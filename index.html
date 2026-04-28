@@ -763,7 +763,7 @@
         result['视角'] = ['无'];
         result['姿态'] = ['无'];
         result['构图'] = ['无'];
-        result['环境'] = ['无'];
+        result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
         result['素材'] = [pickAllowedTag(input['素材'], '素材', '纯景', ['商品', '店面', '纯景'])];
       }
       return result;
@@ -1062,8 +1062,9 @@
     function validateStrictSingleChoice(aiData) {
       const rawTags = aiData && aiData.tags ? aiData.tags : {};
       const hasHuman = parseHumanFlag(aiData);
-      const mustSingle = ['素材'];
-      if (hasHuman) mustSingle.unshift('视角', '姿态', '构图', '环境');
+      const mustSingle = hasHuman
+        ? ['视角', '姿态', '构图', '环境', '素材']
+        : ['环境', '素材'];
 
       for (const dim of mustSingle) {
         const value = rawTags[dim];
@@ -1078,7 +1079,7 @@
         const m = Array.isArray(rawTags['素材']) ? rawTags['素材'][0] : rawTags['素材'];
         if (m && String(m).trim() !== '有人(忽略此项)') return '有人场景素材维度必须为有人(忽略此项)';
       } else {
-        const clearDims = ['视角', '姿态', '构图', '环境'];
+        const clearDims = ['视角', '姿态', '构图'];
         for (const dim of clearDims) {
           const value = rawTags[dim];
           const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
@@ -1679,8 +1680,31 @@
 
     function parseHumanFlag(aiData) {
       const raw = aiData?.has_human ?? aiData?.hasHuman ?? aiData?.person_present;
-      if (typeof raw === 'boolean') return raw;
-      if (typeof raw === 'string') return ['true', 'yes', '1', '有人'].includes(raw.trim().toLowerCase());
+      const explicit = (() => {
+        if (typeof raw === 'boolean') return raw;
+        if (typeof raw === 'string') return ['true', 'yes', '1', '有人'].includes(raw.trim().toLowerCase());
+        return null;
+      })();
+
+      const tags = aiData?.tags || {};
+      const material = firstTag(tags['素材']);
+      const angle = firstTag(tags['视角']);
+      const pose = firstTag(tags['姿态']);
+      const framing = firstTag(tags['构图'] || tags['景别']);
+
+      const hasHumanSignals =
+        (angle && angle !== '无') ||
+        (pose && pose !== '无') ||
+        (framing && framing !== '无') ||
+        material === '有人(忽略此项)';
+
+      const nonHumanSignals = ['商品', '店面', '纯景'].includes(material);
+
+      if (explicit === true) return true;
+      if (explicit === false && hasHumanSignals) return true;
+      if (explicit === false && nonHumanSignals) return false;
+      if (hasHumanSignals) return true;
+      if (nonHumanSignals) return false;
       return true;
     }
 
@@ -1689,6 +1713,12 @@
       const list = Array.isArray(value) ? value : (typeof value === 'string' ? value.split(/[，,、/|]/) : []);
       const clean = list.map(v => String(v).trim()).filter(Boolean);
       return clean.find(v => allowed.includes(v)) || fallback;
+    }
+
+    function firstTag(value) {
+      if (Array.isArray(value)) return value.length ? String(value[0]).trim() : '';
+      if (typeof value === 'string') return value.trim();
+      return '';
     }
 
     function sanitizeFileName(name) {
