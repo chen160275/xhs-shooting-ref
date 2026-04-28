@@ -211,7 +211,7 @@
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
-    const MODELS = ['claude-haiku-4-5-20251001', 'kimi-k2.5', 'grok-4-1-fast-non-reasoning'];
+    const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning'];
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
     const DIMS = ['视角', '姿势', '景别', '环境', '无人'];
     const DIM_LABELS = {
@@ -1375,8 +1375,9 @@
 
     function getModelDisplayName(modelId) {
       if (String(modelId).includes('claude-haiku')) return 'Claude 4.5';
+      if (String(modelId).includes('gpt-4o-mini')) return 'GPT-4o mini';
       if (String(modelId).includes('kimi')) return 'Kimi 2.5';
-      if (String(modelId).includes('grok')) return 'Grok 4.1';
+      if (String(modelId).includes('grok')) return 'Grok 4 Fast';
       return modelId || 'Unknown';
     }
 
