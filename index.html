@@ -79,6 +79,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button id="adminToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Dashboard</button>
           <button id="langToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">EN</button>
           <button id="gridToggle" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Grid: Off</button>
         </div>
@@ -95,7 +96,7 @@
       </div>
     </header>
 
-    <main class="px-3 pt-3">
+    <main id="homePage" class="px-3 pt-3">
       <section class="mb-4 rounded-[28px] bg-white p-3 shadow-card">
         <input type="file" id="upInput" accept="image/*,image/heic,image/heif" multiple class="hidden">
         <button id="uploadBtn" type="button" class="mx-auto flex aspect-[3/4] w-[52vw] max-w-[220px] items-center justify-center rounded-[28px] border-2 border-dashed border-gray-200 bg-paper transition active:scale-[0.98]">
@@ -119,15 +120,46 @@
         <p id="emptySubtitle" class="mt-1 text-xs">上传后会自动压缩、识别并缓存</p>
       </section>
     </main>
+
+    <main id="adminPage" class="hidden px-3 pt-3">
+      <section class="mb-4 rounded-[28px] bg-white p-4 shadow-card">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div id="adminTitle" class="text-sm font-black uppercase tracking-tight">Media Management</div>
+            <div id="adminSubtitle" class="mt-1 text-[11px] text-gray-400">Manage synced cloud assets and retry failed AI jobs</div>
+          </div>
+          <button id="backHomeBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">Home</button>
+        </div>
+      </section>
+
+      <section class="mb-4 rounded-[28px] bg-white p-4 shadow-card">
+        <div class="mb-3 flex items-center justify-between">
+          <div id="adminFailedTitle" class="text-xs font-black uppercase tracking-[0.18em] text-redx">Pending / Failed</div>
+          <div id="failedCount" class="text-[10px] font-bold text-gray-400">0</div>
+        </div>
+        <div id="failedList" class="space-y-3"></div>
+      </section>
+
+      <section class="rounded-[28px] bg-white p-4 shadow-card">
+        <div class="mb-3 flex items-center justify-between">
+          <div id="adminSuccessTitle" class="text-xs font-black uppercase tracking-[0.18em] text-black">Success</div>
+          <div id="successCount" class="text-[10px] font-bold text-gray-400">0</div>
+        </div>
+        <div id="successList" class="space-y-3"></div>
+      </section>
+    </main>
   </div>
 
   <div id="detailModal" class="fixed inset-0 z-50 hidden bg-black/95">
     <div class="mx-auto flex h-full w-full max-w-md flex-col">
       <div class="flex items-center justify-between px-4 py-4">
         <div id="modalBadge" class="rounded-full bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">Immersive View</div>
-        <button id="closeModalBtn" class="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
-          <i class="fa fa-times"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button id="modalGridToggle" class="rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white">Grid: Off</button>
+          <button id="closeModalBtn" class="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
       </div>
       <div class="flex flex-1 items-center justify-center px-4">
         <div class="relative aspect-[3/4] w-full overflow-hidden rounded-[28px] bg-white/5">
@@ -162,6 +194,7 @@
     };
 
     const CACHE_KEY = 'pro_creation_station_cache_v1';
+    const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const DIMS = ['视角', '姿势', '景别', '环境', '无人'];
     const DIM_LABELS = {
@@ -179,6 +212,23 @@
         modalBadge: '沉浸预览',
         modalPromptLabel: '摄影师引导',
         modalQuoteFallback: '等待内容...',
+        adminToggle: '管理页',
+        adminTitle: '云端资产管理',
+        adminSubtitle: '同步查看成功素材，并处理失败或待重试任务',
+        adminFailedTitle: '待处理 / 失败',
+        adminSuccessTitle: '成功素材',
+        adminBackHome: '首页',
+        retry: '重试 AI',
+        delete: '删除',
+        retryConfirm: '确认重新调用 AI 识别吗？这将再次消耗额度。',
+        deleteConfirm: '确认删除该素材吗？会同时删除云端文件与数据库记录。',
+        retryUnavailable: '该素材缺少可访问云端图片，暂时无法重试 AI。',
+        noFailed: '当前没有失败或待处理素材',
+        noSuccess: '当前没有成功素材',
+        reasonPrefix: '原因',
+        statusPrefix: '状态',
+        statusSuccess: '成功',
+        statusFailed: '失败',
         gridOn: '网格：开',
         gridOff: '网格：关',
         uploading: '上传中...',
@@ -195,6 +245,23 @@
         modalBadge: 'Immersive View',
         modalPromptLabel: 'Photographer Prompt',
         modalQuoteFallback: 'Waiting for content...',
+        adminToggle: 'Dashboard',
+        adminTitle: 'Media Management',
+        adminSubtitle: 'Review synced assets and handle failed or pending jobs',
+        adminFailedTitle: 'Pending / Failed',
+        adminSuccessTitle: 'Success',
+        adminBackHome: 'Home',
+        retry: 'Retry AI',
+        delete: 'Delete',
+        retryConfirm: 'Retry AI parsing for this asset? This will consume quota again.',
+        deleteConfirm: 'Delete this asset? This removes both cloud file and database row.',
+        retryUnavailable: 'This asset has no accessible cloud image, so AI retry is unavailable.',
+        noFailed: 'No failed or pending assets',
+        noSuccess: 'No successful assets',
+        reasonPrefix: 'Reason',
+        statusPrefix: 'Status',
+        statusSuccess: 'Success',
+        statusFailed: 'Failed',
         gridOn: 'Grid: On',
         gridOff: 'Grid: Off',
         uploading: 'Uploading...',
@@ -226,27 +293,45 @@
 
     const client = supabase.createClient(CONFIG.S_URL, CONFIG.S_KEY);
     let items = [];
+    let failedAssets = [];
     let selectedDim = '';
     let activeFilters = {};
     let showGrid = false;
     let currentLang = localStorage.getItem(LANG_KEY) || 'zh';
+    let currentPage = new URLSearchParams(window.location.search).get('page') === 'admin' ? 'admin' : 'home';
 
     const gallery = document.getElementById('gallery');
+    const homePage = document.getElementById('homePage');
+    const adminPage = document.getElementById('adminPage');
     const emptyState = document.getElementById('emptyState');
     const upInput = document.getElementById('upInput');
     const uploadBtn = document.getElementById('uploadBtn');
+    const adminToggle = document.getElementById('adminToggle');
+    const backHomeBtn = document.getElementById('backHomeBtn');
     const langToggle = document.getElementById('langToggle');
     const gridToggle = document.getElementById('gridToggle');
+    const modalGridToggle = document.getElementById('modalGridToggle');
     const tagContainer = document.getElementById('tagContainer');
     const subFilterPanel = document.getElementById('subFilterPanel');
+    const failedList = document.getElementById('failedList');
+    const successList = document.getElementById('successList');
+    const failedCount = document.getElementById('failedCount');
+    const successCount = document.getElementById('successCount');
 
     uploadBtn.addEventListener('click', openPicker);
+    adminToggle.addEventListener('click', () => setPage('admin'));
+    backHomeBtn.addEventListener('click', () => setPage('home'));
     langToggle.addEventListener('click', toggleLanguage);
     upInput.addEventListener('change', onUploadChange);
     gridToggle.addEventListener('click', toggleGrid);
+    modalGridToggle.addEventListener('click', toggleGrid);
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('detailModal').addEventListener('click', (e) => {
       if (e.target.id === 'detailModal') closeModal();
+    });
+    window.addEventListener('popstate', () => {
+      currentPage = new URLSearchParams(window.location.search).get('page') === 'admin' ? 'admin' : 'home';
+      syncPageUI();
     });
     document.querySelectorAll('#dimNav .nav-tab').forEach(btn => {
       btn.addEventListener('click', () => switchDim(btn.dataset.dim, btn));
@@ -258,6 +343,7 @@
       renderStaticText();
       renderFromCache();
       await syncRemote();
+      syncPageUI();
     }
 
     function t(key) {
@@ -281,6 +367,8 @@
     function renderStaticText() {
       document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
       document.title = currentLang === 'zh' ? 'PRO 创作工作站' : 'PRO Creation Station';
+      adminToggle.textContent = t('adminToggle');
+      backHomeBtn.textContent = t('adminBackHome');
       langToggle.textContent = currentLang === 'zh' ? 'EN' : '中';
       document.getElementById('brandTitle').textContent = t('brandTitle');
       document.getElementById('brandSubtitle').textContent = t('brandSubtitle');
@@ -290,6 +378,10 @@
       document.getElementById('emptySubtitle').textContent = t('emptySubtitle');
       document.getElementById('modalBadge').textContent = t('modalBadge');
       document.getElementById('modalPromptLabel').textContent = t('modalPromptLabel');
+      document.getElementById('adminTitle').textContent = t('adminTitle');
+      document.getElementById('adminSubtitle').textContent = t('adminSubtitle');
+      document.getElementById('adminFailedTitle').textContent = t('adminFailedTitle');
+      document.getElementById('adminSuccessTitle').textContent = t('adminSuccessTitle');
       const modalQuoteEl = document.getElementById('modalQuote');
       if (!modalQuoteEl.textContent.replace(/[“”"]/g, '').trim() || modalQuoteEl.textContent.includes('等待内容') || modalQuoteEl.textContent.includes('Waiting for content')) {
         modalQuoteEl.textContent = `“${t('modalQuoteFallback')}”`;
@@ -298,6 +390,7 @@
         btn.textContent = DIM_LABELS[currentLang][btn.dataset.dim] || btn.dataset.dim;
       });
       syncGridUI();
+      renderAdminLists();
     }
 
     function openPicker() {
@@ -321,12 +414,14 @@
       const tempId = 'tmp_' + Date.now() + Math.random().toString(36).slice(2, 7);
       const previewUrl = URL.createObjectURL(file);
       renderPlaceholder({ id: tempId, previewUrl, status: t('uploading') });
+      let fileName = '';
+      let publicUrl = '';
 
       try {
         const compressedBase64 = await compressToBase64(file, 800, 0.82);
         updatePlaceholder(tempId, { status: t('uploadingCloud') });
 
-        const fileName = `${Date.now()}-${sanitizeFileName(file.name || 'image.jpg')}.jpg`;
+        fileName = `${Date.now()}-${sanitizeFileName(file.name || 'image.jpg')}.jpg`;
         const uploadBlob = dataUrlToBlob(compressedBase64);
         const uploadResult = await uploadToSupabase(fileName, uploadBlob, (progress) => {
           updatePlaceholder(tempId, { progress });
@@ -336,7 +431,7 @@
           throw new Error('Storage Error');
         }
 
-        const publicUrl = client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName).data.publicUrl;
+        publicUrl = client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName).data.publicUrl;
         updatePlaceholder(tempId, { status: t('aiParsing') });
 
         const aiData = await requestAI(compressedBase64);
@@ -346,22 +441,44 @@
           storage_path: fileName,
           tags: normalized.tags,
           quote: normalized.quote,
-          lens: normalized.lens
+          lens: normalized.lens,
+          status: 'success',
+          error_log: ''
         };
 
         const data = await insertInspirationRecord(payload);
 
         const item = normalizeItem(data, previewUrl);
         items.unshift(item);
+        removeFailedAsset(tempId, fileName, publicUrl);
         persistCache();
         document.getElementById(tempId)?.remove();
         renderGallery();
+        renderAdminLists();
       } catch (error) {
         console.error('上传链路失败:', error);
+        const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
+        const failedAsset = normalizeFailureRecord({
+          id: tempId,
+          image_url: publicUrl || previewUrl,
+          storage_path: fileName,
+          tags: normalizeTags({}),
+          quote: '',
+          lens: 50,
+          status: 'failed',
+          error_log: statusText,
+          created_at: new Date().toISOString(),
+          source: 'local'
+        });
+        upsertFailedAsset(failedAsset);
+        await persistFailedRecordRemote(failedAsset);
         updatePlaceholder(tempId, {
-          status: error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message,
+          status: statusText,
           error: true
         });
+        document.getElementById(tempId)?.remove();
+        renderGallery();
+        renderAdminLists();
       }
     }
 
@@ -372,9 +489,16 @@
           .select('*')
           .order('created_at', { ascending: false });
         if (error) throw error;
-        items = (data || []).map(row => normalizeItem(row));
+        const remoteItems = (data || []).map(row => normalizeItem(row));
+        items = remoteItems.filter(item => item.status === 'success');
+        failedAssets = mergeFailedAssets(
+          remoteItems.filter(item => item.status !== 'success'),
+          readFailedAssets()
+        );
         persistCache();
+        persistFailedAssets();
         renderGallery();
+        renderAdminLists();
       } catch (error) {
         console.error('远程同步失败:', error);
       }
@@ -384,8 +508,10 @@
       try {
         const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
         if (!Array.isArray(cached)) return;
-        items = cached.map(row => normalizeItem(row));
+        items = cached.map(row => normalizeItem(row)).filter(item => item.status === 'success');
+        failedAssets = readFailedAssets();
         renderGallery();
+        renderAdminLists();
       } catch (error) {
         console.error('缓存读取失败:', error);
       }
@@ -393,6 +519,19 @@
 
     function persistCache() {
       localStorage.setItem(CACHE_KEY, JSON.stringify(items.slice(0, 120)));
+    }
+
+    function persistFailedAssets() {
+      localStorage.setItem(FAIL_LOG_KEY, JSON.stringify(failedAssets.slice(0, 200)));
+    }
+
+    function readFailedAssets() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(FAIL_LOG_KEY) || '[]');
+        return Array.isArray(raw) ? raw.map(normalizeFailureRecord) : [];
+      } catch (error) {
+        return [];
+      }
     }
 
     function normalizeItem(row, fallbackPreview) {
@@ -403,24 +542,24 @@
         tags: normalizeTags(parseTagsField(row.tags)),
         quote: typeof row.quote === 'string' && row.quote.trim() ? row.quote.trim() : t('modalQuoteFallback'),
         lens: normalizeLens(row.lens),
+        status: row.status || 'success',
+        error_log: row.error_log || '',
         created_at: row.created_at || new Date().toISOString()
       };
+    }
+
+    function normalizeFailureRecord(row) {
+      const item = normalizeItem(row);
+      item.status = item.status || 'failed';
+      item.error_log = row.error_log || row.errorLog || item.error_log || 'Unknown Error';
+      item.source = row.source || 'local';
+      return item;
     }
 
     async function insertInspirationRecord(payload) {
       const tagsAsObject = payload.tags;
       const tagsAsString = JSON.stringify(payload.tags);
-      const attempts = [
-        { ...payload, tags: tagsAsObject },
-        { ...payload, tags: tagsAsString },
-        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote, lens: payload.lens },
-        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote, lens: payload.lens },
-        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote },
-        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote },
-        { image_url: payload.image_url, tags: tagsAsObject },
-        { image_url: payload.image_url, tags: tagsAsString },
-        { image_url: payload.image_url }
-      ];
+      const attempts = buildInsertAttempts(payload, tagsAsObject, tagsAsString);
 
       let lastError = null;
       for (const candidate of attempts) {
@@ -445,6 +584,23 @@
       ].filter(Boolean);
 
       throw new Error(detailParts[0] ? `DB: ${detailParts.join(' | ')}` : 'DB Error');
+    }
+
+    function buildInsertAttempts(payload, tagsAsObject, tagsAsString) {
+      return [
+        { ...payload, tags: tagsAsObject },
+        { ...payload, tags: tagsAsString },
+        { image_url: payload.image_url, storage_path: payload.storage_path, tags: tagsAsObject, quote: payload.quote, lens: payload.lens, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, storage_path: payload.storage_path, tags: tagsAsString, quote: payload.quote, lens: payload.lens, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote, lens: payload.lens, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote, lens: payload.lens, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsObject, quote: payload.quote, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsString, quote: payload.quote, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsObject, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, tags: tagsAsString, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url, status: payload.status, error_log: payload.error_log },
+        { image_url: payload.image_url }
+      ];
     }
 
     function parseTagsField(value) {
@@ -792,6 +948,7 @@
 
     function syncGridUI() {
       gridToggle.textContent = showGrid ? t('gridOn') : t('gridOff');
+      modalGridToggle.textContent = showGrid ? t('gridOn') : t('gridOff');
       document.querySelectorAll('.grid-overlay').forEach(el => el.classList.toggle('show', showGrid));
     }
 
@@ -810,6 +967,235 @@
     function closeModal() {
       document.getElementById('detailModal').classList.add('hidden');
       document.body.style.overflow = '';
+    }
+
+    function setPage(page) {
+      currentPage = page;
+      const url = new URL(window.location.href);
+      if (page === 'admin') url.searchParams.set('page', 'admin');
+      else url.searchParams.delete('page');
+      window.history.replaceState({}, '', url.toString());
+      syncPageUI();
+    }
+
+    function syncPageUI() {
+      homePage.classList.toggle('hidden', currentPage !== 'home');
+      adminPage.classList.toggle('hidden', currentPage !== 'admin');
+      adminToggle.classList.toggle('bg-black', currentPage === 'admin');
+      adminToggle.classList.toggle('text-white', currentPage === 'admin');
+      adminToggle.classList.toggle('border-black', currentPage === 'admin');
+    }
+
+    function renderAdminLists() {
+      const failed = failedAssets.slice().sort(sortByDateDesc);
+      const success = items.slice().sort(sortByDateDesc);
+
+      failedCount.textContent = String(failed.length);
+      successCount.textContent = String(success.length);
+
+      failedList.innerHTML = failed.length ? failed.map(renderAdminRow).join('') : `<div class="rounded-2xl bg-paper px-4 py-5 text-center text-sm text-gray-400">${t('noFailed')}</div>`;
+      successList.innerHTML = success.length ? success.map(renderAdminRow).join('') : `<div class="rounded-2xl bg-paper px-4 py-5 text-center text-sm text-gray-400">${t('noSuccess')}</div>`;
+
+      failedList.querySelectorAll('[data-action]').forEach(btn => bindAdminAction(btn, failed));
+      successList.querySelectorAll('[data-action]').forEach(btn => bindAdminAction(btn, success));
+    }
+
+    function renderAdminRow(item) {
+      const statusText = item.status === 'success' ? t('statusSuccess') : t('statusFailed');
+      const reason = item.error_log || '-';
+      const canRetry = isRetryableAsset(item);
+      return `
+        <div class="flex gap-3 rounded-2xl bg-paper p-3">
+          <img src="${escapeHtml(item.image_url || '')}" class="h-24 w-20 rounded-xl object-cover bg-gray-100">
+          <div class="min-w-0 flex-1">
+            <div class="mb-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>
+            <div class="text-[11px] font-bold text-gray-500">${t('statusPrefix')}: ${statusText}</div>
+            <div class="mt-1 line-clamp-2 text-[11px] text-gray-400">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
+            <div class="mt-3 flex gap-2">
+              ${item.status !== 'success' && canRetry ? `<button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button>` : ''}
+              <button data-action="delete" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('delete')}</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function bindAdminAction(btn, sourceList) {
+      const item = sourceList.find(entry => String(entry.id) === btn.dataset.id);
+      if (!item) return;
+      if (btn.dataset.action === 'retry') {
+        btn.addEventListener('click', () => retryFailedAsset(item));
+      }
+      if (btn.dataset.action === 'delete') {
+        btn.addEventListener('click', () => deleteAsset(item));
+      }
+    }
+
+    async function retryFailedAsset(item) {
+      if (!window.confirm(t('retryConfirm'))) return;
+      if (!isRetryableAsset(item)) {
+        window.alert(t('retryUnavailable'));
+        return;
+      }
+      try {
+        const base64 = await urlToDataURL(item.image_url);
+        const aiData = await requestAI(base64);
+        const normalized = normalizeAI(aiData);
+        const updates = {
+          tags: normalized.tags,
+          quote: normalized.quote,
+          lens: normalized.lens,
+          status: 'success',
+          error_log: ''
+        };
+        await updateRemoteRecord(item, updates);
+        removeFailedAsset(item.id, item.storage_path, item.image_url);
+        items.unshift(normalizeItem({ ...item, ...updates }));
+        persistCache();
+        renderGallery();
+        renderAdminLists();
+      } catch (error) {
+        const message = error.message || 'Retry Error';
+        item.error_log = message;
+        upsertFailedAsset(item);
+        await updateRemoteRecord(item, { status: 'failed', error_log: message });
+        persistFailedAssets();
+        renderAdminLists();
+      }
+    }
+
+    async function deleteAsset(item) {
+      if (!window.confirm(t('deleteConfirm'))) return;
+      if (item.storage_path) {
+        try {
+          await client.storage.from(CONFIG.BUCKET).remove([item.storage_path]);
+        } catch (error) {
+          console.error('Storage delete failed:', error);
+        }
+      }
+      if (item.id && !String(item.id).startsWith('tmp_')) {
+        try {
+          await client.from('inspirations').delete().eq('id', item.id);
+        } catch (error) {
+          console.error('DB delete failed:', error);
+        }
+      }
+      removeFailedAsset(item.id, item.storage_path, item.image_url);
+      items = items.filter(entry => String(entry.id) !== String(item.id));
+      persistCache();
+      renderGallery();
+      renderAdminLists();
+    }
+
+    async function updateRemoteRecord(item, updates) {
+      if (!item.id || String(item.id).startsWith('tmp_')) {
+        const payload = {
+          image_url: item.image_url,
+          storage_path: item.storage_path || '',
+          tags: updates.tags || item.tags,
+          quote: updates.quote || item.quote || '',
+          lens: updates.lens || item.lens || 50,
+          status: updates.status || item.status || 'failed',
+          error_log: updates.error_log || ''
+        };
+        try {
+          return await insertInspirationRecord(payload);
+        } catch (error) {
+          console.error('Fallback insert on update failed:', error);
+          return null;
+        }
+      }
+      const attemptPayloads = buildUpdateAttempts(item, updates);
+      let lastError = null;
+      for (const candidate of attemptPayloads) {
+        const { data, error } = await client.from('inspirations').update(candidate).eq('id', item.id).select().single();
+        if (!error) return data;
+        lastError = error;
+      }
+      if (lastError) throw new Error(lastError.message || 'Update Error');
+      return null;
+    }
+
+    function buildUpdateAttempts(item, updates) {
+      const mergedTags = updates.tags || item.tags;
+      return [
+        { tags: mergedTags, quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log },
+        { tags: JSON.stringify(mergedTags), quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log },
+        { tags: mergedTags, quote: updates.quote, status: updates.status, error_log: updates.error_log },
+        { tags: JSON.stringify(mergedTags), quote: updates.quote, status: updates.status, error_log: updates.error_log },
+        { status: updates.status, error_log: updates.error_log }
+      ].map(payload => Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)));
+    }
+
+    async function persistFailedRecordRemote(item) {
+      const payload = {
+        image_url: item.image_url,
+        storage_path: item.storage_path || '',
+        tags: item.tags,
+        quote: '',
+        lens: 50,
+        status: 'failed',
+        error_log: item.error_log || 'Unknown Error'
+      };
+      try {
+        const inserted = await insertInspirationRecord(payload);
+        if (inserted) {
+          removeFailedAsset(item.id, item.storage_path, item.image_url);
+          upsertFailedAsset(normalizeFailureRecord({ ...inserted, source: 'remote' }));
+        }
+      } catch (error) {
+        console.error('Persist failed record remotely skipped:', error);
+      }
+    }
+
+    function upsertFailedAsset(asset) {
+      const normalized = normalizeFailureRecord(asset);
+      const index = failedAssets.findIndex(entry =>
+        String(entry.id) === String(normalized.id) ||
+        (entry.storage_path && normalized.storage_path && entry.storage_path === normalized.storage_path) ||
+        (entry.image_url && normalized.image_url && entry.image_url === normalized.image_url)
+      );
+      if (index === -1) failedAssets.unshift(normalized);
+      else failedAssets[index] = { ...failedAssets[index], ...normalized };
+      persistFailedAssets();
+    }
+
+    function removeFailedAsset(id, storagePath, imageUrl) {
+      failedAssets = failedAssets.filter(entry => {
+        const sameId = id && String(entry.id) === String(id);
+        const samePath = storagePath && entry.storage_path === storagePath;
+        const sameUrl = imageUrl && entry.image_url === imageUrl;
+        return !(sameId || samePath || sameUrl);
+      });
+      persistFailedAssets();
+    }
+
+    function mergeFailedAssets(remoteFailed, localFailed) {
+      const merged = [];
+      [...remoteFailed.map(item => normalizeFailureRecord({ ...item, source: 'remote' })), ...localFailed.map(normalizeFailureRecord)].forEach(item => {
+        const exists = merged.find(entry =>
+          String(entry.id) === String(item.id) ||
+          (entry.storage_path && item.storage_path && entry.storage_path === item.storage_path) ||
+          (entry.image_url && item.image_url && entry.image_url === item.image_url)
+        );
+        if (!exists) merged.push(item);
+      });
+      return merged;
+    }
+
+    function isRetryableAsset(item) {
+      return Boolean(item.image_url) && /^https?:\/\//i.test(String(item.image_url));
+    }
+
+    async function urlToDataURL(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Network Error ${response.status}`);
+      const blob = await response.blob();
+      return await readFileAsDataURL(blob);
+    }
+
+    function sortByDateDesc(a, b) {
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
     }
 
     function renderTagMarkup(tags, compact) {
