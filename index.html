@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>PRO 拍摄执行系统 | 习习生产版</title>
+  <title>PRO 拍摄执行系统 | 习习稳定版</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -13,7 +13,7 @@
     @layer utilities {
       .masonry { column-count: 2; column-gap: 12px; }
       @screen md { .masonry { column-count: 3; column-gap: 16px; } }
-      .card { break-inside: avoid; margin-bottom: 12px; }
+      .card { break-inside: avoid; margin-bottom: 12px; transition: all 0.3s; }
       .nav-dim { @apply flex-1 text-center text-[11px] font-bold py-3 text-gray-400 border-b-2 border-transparent transition-all uppercase tracking-tighter cursor-pointer; }
       .nav-dim.active { @apply text-black border-black; }
       .tag-pill { @apply px-3 py-1.5 rounded-full text-[11px] bg-gray-100 text-gray-600 border border-transparent transition-all; }
@@ -28,7 +28,7 @@
     }
   </style>
 </head>
-<body class="bg-[#F9FAFB] min-h-screen pb-10 overflow-x-hidden">
+<body class="bg-[#F9FAFB] min-h-screen pb-10">
 
 <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100">
   <div class="px-4 h-14 flex items-center justify-between">
@@ -62,7 +62,7 @@
     <button onclick="closeModal()" class="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full text-white flex items-center justify-center"><i class="fa fa-times"></i></button>
   </div>
   <div class="flex-1 flex items-center justify-center relative p-6">
-    <div class="relative aspect-[3/4] h-full max-h-[65vh] shadow-2xl">
+    <div class="relative aspect-[3/4] h-full max-h-[65vh]">
         <img id="modalImg" class="w-full h-full object-contain rounded-xl">
         <div id="modalGrid" class="grid-lines absolute inset-0">
             <div class="grid-v" style="left:33.3%"></div><div class="grid-v" style="left:66.6%"></div>
@@ -70,18 +70,17 @@
         </div>
     </div>
   </div>
-  <div class="bg-white rounded-t-[40px] p-8 pb-12 translate-y-2">
+  <div class="bg-white rounded-t-[40px] p-8 pb-12 shadow-2xl">
     <div class="flex justify-between items-center mb-6">
       <div id="modalTags" class="flex flex-wrap gap-2"></div>
       <span id="modalLens" class="text-[11px] font-black bg-gray-100 px-3 py-1 rounded-lg text-gray-500 uppercase">--MM</span>
     </div>
-    <p class="text-[9px] text-gray-300 font-black uppercase tracking-[0.2em] mb-2">Modeling Guidance</p>
-    <div id="modalQuote" class="text-xl font-bold text-black italic leading-tight">获取中...</div>
+    <p class="text-[9px] text-gray-300 font-black uppercase tracking-[0.2em] mb-2 text-left">Professional Instruction</p>
+    <div id="modalQuote" class="text-xl font-bold text-black italic leading-tight text-left">获取中...</div>
   </div>
 </div>
 
 <script>
-// 使用你确认的正式配置
 const CONFIG = {
   S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co", 
   S_KEY: "sb_publishable_tDg0y9w1HZFb_oV5Gb7VHg_Sh_g-1Cf",
@@ -111,25 +110,25 @@ document.getElementById('upInput').addEventListener('change', async (e) => {
 
     try {
       const fileName = `${Date.now()}-${file.name.replace(/[^\x00-\x7F]/g, "")}`;
-      // 1. 上传图片到 Supabase
+      // 1. 上传图片
       const { data: uploadData, error: upError } = await _client.storage.from(CONFIG.BUCKET).upload(fileName, file, {
         onUploadProgress: (p) => { pBar.style.width = `${(p.loaded/p.total)*100}%`; }
       });
-      if(upError) throw new Error("Supabase上传失败");
+      if(upError) throw new Error("存储失败");
 
       const { data: { publicUrl } } = _client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName);
       
-      // 2. 自动压缩并 AI 识别
-      statusTxt.innerText = "正在压缩并识别...";
+      // 2. 压缩并识别
+      statusTxt.innerText = "AI 识别中...";
       const compressedB64 = await compressToBase64(file);
       const aiData = await getAI(compressedB64);
 
-      // 3. 存入数据库
+      // 3. 存库
       const { data: db, error: dbError } = await _client.from('inspirations').insert([{ 
         image_url: publicUrl, storage_path: fileName,
         tags: aiData.tags, quote: aiData.quote, lens: aiData.lens 
       }]).select();
-      if(dbError) throw new Error("数据库写入失败");
+      if(dbError) throw new Error("数据库入库失败");
 
       _items.unshift(db[0]);
       document.getElementById(tempId)?.remove();
@@ -142,26 +141,30 @@ document.getElementById('upInput').addEventListener('change', async (e) => {
 });
 
 async function getAI(base64) {
+  // 优化 Prompt，强制限制字数防止截断
   const res = await fetch("https://api.bltcy.ai/v1/chat/completions", {
-    method: "POST", 
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${CONFIG.K_KEY}` },
+    method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${CONFIG.K_KEY}` },
     body: JSON.stringify({
       model: "kimi-k2.5",
-      messages: [{ role: "user", content: [{ type: "text", text: "分析此3:4摄影图,输出JSON: tags:{交互,姿势,景别,环境,其他}, quote:模特引导语, lens:建议焦段" }, { type: "image_url", image_url: { url: base64 } }]}],
+      max_tokens: 400,
+      messages: [{ role: "user", content: [{ type: "text", text: "分析此3:4摄影参考图。严格输出JSON格式：{tags:{交互,姿势,景别,环境,其他}, quote:给模特的一句话指令(20字内), lens:推荐焦段数字}。不要有额外说明。" }, { type: "image_url", image_url: { url: base64 } }]}],
       response_format: { type: "json_object" }
     })
   });
-  if (!res.ok) throw new Error(`AI接口错误 ${res.status}`);
+  if (!res.ok) throw new Error(`AI接口响应异常 ${res.status}`);
   const j = await res.json();
-  return JSON.parse(j.choices[0].message.content);
+  try {
+    return JSON.parse(j.choices[0].message.content);
+  } catch (e) {
+    throw new Error("AI 返回数据损坏 (JSON Error)");
+  }
 }
 
-// 详情 Modal 逻辑
 function openDetail(id) {
   const item = _items.find(x => x.id == id);
   if(!item) return;
   document.getElementById('modalImg').src = item.image_url;
-  document.getElementById('modalQuote').innerText = `“${item.quote || '暂无话术'}”`;
+  document.getElementById('modalQuote').innerText = `“${item.quote || '正在分析动作...'}”`;
   document.getElementById('modalLens').innerText = `${item.lens || '--'}MM`;
   const cls = { '交互':'bg-rose-400', '姿势':'bg-violet-400', '景别':'bg-blue-400', '环境':'bg-amber-400', '其他':'bg-emerald-400' };
   document.getElementById('modalTags').innerHTML = Object.entries(item.tags || {}).filter(([k,v]) => v).map(([k,v]) => `<span class="px-2.5 py-1 rounded-md text-[10px] text-white font-bold ${cls[k]}">${v}</span>`).join('');
@@ -182,7 +185,7 @@ function renderCard(item) {
   div.innerHTML = `
     <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 relative shadow-sm">
       <div class="aspect-[3/4] relative">
-        <img src="${item.image_url}" class="w-full h-full object-cover block">
+        <img src="${item.image_url}" class="w-full h-full object-cover block" loading="lazy">
         <div class="grid-lines ${ _showGrid ? 'show' : '' }"><div class="grid-v" style="left:33.3%"></div><div class="grid-v" style="left:66.6%"></div><div class="grid-h" style="top:33.3%"></div><div class="grid-h" style="top:66.6%"></div></div>
       </div>
       <div class="p-2.5 flex flex-wrap gap-y-1">${tagH}</div>
@@ -204,7 +207,6 @@ function renderPlaceholder(id, url) {
   document.getElementById('gallery').prepend(div);
 }
 
-// 辅助：压缩图片以适应 AI 接口
 function compressToBase64(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -214,7 +216,7 @@ function compressToBase64(file) {
       img.src = e.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800; // 压缩到 800px 宽度
+        const MAX_WIDTH = 800;
         const scale = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scale;
