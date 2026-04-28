@@ -85,7 +85,6 @@
         <button class="nav-tab" data-dim="姿势">姿势</button>
         <button class="nav-tab" data-dim="景别">景别</button>
         <button class="nav-tab" data-dim="环境">环境</button>
-        <button class="nav-tab" data-dim="其他">其他</button>
       </div>
       <div id="subFilterPanel" class="dim-panel border-b border-transparent">
         <div id="tagContainer" class="flex flex-wrap gap-2 px-4 pb-4 pt-3"></div>
@@ -159,20 +158,18 @@
     };
 
     const CACHE_KEY = 'pro_creation_station_cache_v1';
-    const DIMS = ['交互', '姿势', '景别', '环境', '其他'];
+    const DIMS = ['交互', '姿势', '景别', '环境'];
     const DICTIONARY = {
       '交互': ['看镜头', '不看镜头', '背影', '侧颜', '回头', '互动感'],
       '姿势': ['站立', '坐姿', '蹲姿', '走动', '伸展', '手部动作'],
       '景别': ['全身', '半身', '中近景', '特写', '局部'],
-      '环境': ['室内空间', '纯色背景', '街头', '窗边光', '夜景', '自然场景'],
-      '其他': ['情绪感', '道具', '留白', '虚化', '层次', '故事感']
+      '环境': ['室内空间', '纯色背景', '街头', '窗边光', '夜景', '自然场景']
     };
     const TAG_STYLE = {
       '交互': 'bg-black text-white',
       '姿势': 'bg-[#111827] text-white',
       '景别': 'bg-[#374151] text-white',
-      '环境': 'bg-[#6B7280] text-white',
-      '其他': 'bg-[#9CA3AF] text-white'
+      '环境': 'bg-[#6B7280] text-white'
     };
 
     const client = supabase.createClient(CONFIG.S_URL, CONFIG.S_KEY);
@@ -501,7 +498,7 @@
             content: [
               {
                 type: 'text',
-                text: '你是摄影导演。分析这张 3:4 人像参考图，严格返回 JSON：{"tags":{"交互":[],"姿势":[],"景别":[],"环境":[],"其他":[]},"quote":"20字内模特引导话术","lens":"推荐焦段数字"}。只允许 JSON，不要解释，不要 markdown。'
+                text: '分析这张3:4人像参考图。严格只返回JSON，不要解释，不要markdown，不要代码块。格式固定为：{"tags":{"交互":[],"姿势":[],"景别":[],"环境":[]},"quote":"20字内模特引导话术"}。要求：1. 四个维度都必须存在；2. 每个维度数组只能有1个短标签；3. 无法判断时返回空数组；4. quote少于20字。'
               },
               {
                 type: 'image_url',
@@ -599,10 +596,16 @@
     }
 
     function normalizeAI(aiData) {
+      const normalizedTags = normalizeTags(aiData.tags || {});
       return {
-        tags: normalizeTags(aiData.tags || {}),
+        tags: {
+          '交互': normalizedTags['交互'].slice(0, 1),
+          '姿势': normalizedTags['姿势'].slice(0, 1),
+          '景别': normalizedTags['景别'].slice(0, 1),
+          '环境': normalizedTags['环境'].slice(0, 1)
+        },
         quote: truncateText(String(aiData.quote || '眼神放松，肩线自然打开').replace(/["“”]/g, ''), 20),
-        lens: normalizeLens(aiData.lens)
+        lens: 50
       };
     }
 
