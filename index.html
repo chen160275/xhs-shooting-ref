@@ -137,7 +137,10 @@
             </div>
           </div>
         </button>
-        <div id="queueStrip" class="mt-2 hidden gap-2 overflow-x-auto pb-1"></div>
+        <div class="relative mt-2">
+          <div id="queueStrip" class="hidden flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-5"></div>
+          <div id="queueHint" class="pointer-events-none absolute inset-y-0 right-0 hidden w-8 bg-gradient-to-l from-white to-transparent"></div>
+        </div>
       </section>
 
       <section class="mb-4 rounded-[28px] bg-white p-4 shadow-card">
@@ -150,7 +153,13 @@
 
       <section class="rounded-[28px] bg-white p-4 shadow-card">
         <div class="mb-3 flex items-center justify-between">
-          <div id="adminSuccessTitle" class="text-xs font-black uppercase tracking-[0.18em] text-black">Success</div>
+          <div class="flex items-center gap-2">
+            <div id="adminSuccessTitle" class="text-xs font-black uppercase tracking-[0.18em] text-black">Success</div>
+            <label class="flex items-center gap-1 text-[11px] text-gray-500">
+              <input id="successSelectAll" type="checkbox" class="h-3.5 w-3.5 accent-black">
+              <span id="selectAllText">全选</span>
+            </label>
+          </div>
           <div id="successCount" class="text-[10px] font-bold text-gray-400">0</div>
         </div>
         <div id="successList" class="space-y-3"></div>
@@ -161,6 +170,7 @@
           <div id="batchCount" class="text-xs font-bold">0 selected</div>
           <div class="flex gap-2">
             <button id="batchRetryBtn" class="rounded-full border border-white/40 px-3 py-1.5 text-[11px] font-bold">批量重试</button>
+            <button id="batchOverwriteBtn" class="rounded-full border border-white/40 px-3 py-1.5 text-[11px] font-bold">批量重新识别</button>
             <button id="batchDeleteBtn" class="rounded-full border border-red-300 bg-red-500 px-3 py-1.5 text-[11px] font-bold">批量删除</button>
           </div>
         </div>
@@ -252,6 +262,8 @@
         batchSelected: '已选',
         batchSelectedSuffix: '项',
         batchRetry: '批量重试',
+        batchOverwrite: '批量重新识别',
+        selectAll: '全选',
         batchDelete: '批量删除',
         reasonPrefix: '原因',
         statusPrefix: '状态',
@@ -294,6 +306,8 @@
         batchSelected: 'selected',
         batchSelectedSuffix: '',
         batchRetry: 'Batch Retry',
+        batchOverwrite: 'Batch Re-recognize',
+        selectAll: 'Select all',
         batchDelete: 'Batch Delete',
         reasonPrefix: 'Reason',
         statusPrefix: 'Status',
@@ -361,12 +375,16 @@
     const subFilterPanel = document.getElementById('subFilterPanel');
     const failedList = document.getElementById('failedList');
     const successList = document.getElementById('successList');
+    const successSelectAll = document.getElementById('successSelectAll');
+    const selectAllText = document.getElementById('selectAllText');
     const failedCount = document.getElementById('failedCount');
     const successCount = document.getElementById('successCount');
     const queueStrip = document.getElementById('queueStrip');
+    const queueHint = document.getElementById('queueHint');
     const batchBar = document.getElementById('batchBar');
     const batchCount = document.getElementById('batchCount');
     const batchRetryBtn = document.getElementById('batchRetryBtn');
+    const batchOverwriteBtn = document.getElementById('batchOverwriteBtn');
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
     const toast = document.getElementById('toast');
     let toastTimer = null;
@@ -384,8 +402,11 @@
       localStorage.setItem(MODEL_KEY, currentModel);
     });
     queueToggleBtn.addEventListener('click', toggleQueuePause);
+    queueStrip.addEventListener('scroll', syncQueueHint);
     batchRetryBtn.addEventListener('click', batchRetrySelected);
+    batchOverwriteBtn.addEventListener('click', batchOverwriteSelected);
     batchDeleteBtn.addEventListener('click', batchDeleteSelected);
+    successSelectAll.addEventListener('change', toggleSelectAllSuccess);
     langToggle.addEventListener('click', toggleLanguage);
     upInput.addEventListener('change', onUploadChange);
     gridToggle.addEventListener('click', toggleGrid);
@@ -458,7 +479,9 @@
         btn.textContent = DIM_LABELS[currentLang][btn.dataset.dim] || btn.dataset.dim;
       });
       batchRetryBtn.textContent = t('batchRetry');
+      batchOverwriteBtn.textContent = t('batchOverwrite');
       batchDeleteBtn.textContent = t('batchDelete');
+      selectAllText.textContent = t('selectAll');
       syncGridUI();
       syncDimIndicators();
       syncBatchBar();
@@ -818,6 +841,7 @@
     function renderQueueItem({ id, previewUrl, status }) {
       const modelText = getModelDisplayName(currentModel);
       queueStrip.classList.remove('hidden');
+      syncQueueHint();
       const card = document.createElement('div');
       card.id = id;
       card.className = 'relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100';
@@ -831,6 +855,7 @@
         </div>
       `;
       queueStrip.prepend(card);
+      requestAnimationFrame(syncQueueHint);
     }
 
     function updateQueueItem(id, { progress, status, error = false }) {
@@ -852,7 +877,10 @@
 
     function removeQueueItem(id) {
       document.getElementById(id)?.remove();
-      if (!queueStrip.children.length) queueStrip.classList.add('hidden');
+      if (!queueStrip.children.length) {
+        queueStrip.classList.add('hidden');
+      }
+      requestAnimationFrame(syncQueueHint);
     }
 
     function updatePlaceholder(id, { progress, status, error = false }) {
@@ -1223,6 +1251,7 @@
       successList.querySelectorAll('[data-action]').forEach(btn => bindAdminAction(btn, success));
       failedList.querySelectorAll('[data-select-id], [data-card-id]').forEach(node => bindSelectionAction(node, failed));
       successList.querySelectorAll('[data-select-id], [data-card-id]').forEach(node => bindSelectionAction(node, success));
+      syncSelectAllState(success);
       syncBatchBar();
     }
 
@@ -1284,6 +1313,7 @@
       const key = String(id);
       if (checked) selectedAssetIds.add(key);
       else selectedAssetIds.delete(key);
+      syncSelectAllState(items);
       syncBatchBar();
     }
 
@@ -1306,7 +1336,10 @@
         };
         await updateRemoteRecord(item, updates);
         removeFailedAsset(item.id, item.storage_path, item.image_url);
-        items.unshift(normalizeItem({ ...item, ...updates }));
+        const updated = normalizeItem({ ...item, ...updates });
+        const existingIndex = items.findIndex(entry => String(entry.id) === String(updated.id));
+        if (existingIndex >= 0) items[existingIndex] = updated;
+        else items.unshift(updated);
         persistCache();
         renderGallery();
         renderAdminLists();
@@ -1429,6 +1462,21 @@
         if (item) await retryFailedAsset(item, true);
       }
       selectedAssetIds.clear();
+      syncSelectAllState(items);
+      syncBatchBar();
+    }
+
+    async function batchOverwriteSelected() {
+      const ids = Array.from(selectedAssetIds);
+      if (!ids.length) return;
+      if (!window.confirm(t('retryConfirm'))) return;
+      const all = [...items, ...failedAssets];
+      for (const id of ids) {
+        const item = all.find(entry => String(entry.id) === String(id));
+        if (!item) continue;
+        await retryFailedAsset(item, true);
+      }
+      syncSelectAllState(items);
       syncBatchBar();
     }
 
@@ -1551,6 +1599,28 @@
         : `${count} ${t('batchSelected')}`;
     }
 
+    function toggleSelectAllSuccess() {
+      const checked = successSelectAll.checked;
+      if (checked) {
+        items.forEach(item => selectedAssetIds.add(String(item.id)));
+      } else {
+        items.forEach(item => selectedAssetIds.delete(String(item.id)));
+      }
+      renderAdminLists();
+    }
+
+    function syncSelectAllState(successItems) {
+      const list = Array.isArray(successItems) ? successItems : [];
+      if (!list.length) {
+        successSelectAll.checked = false;
+        successSelectAll.indeterminate = false;
+        return;
+      }
+      const selectedCount = list.filter(item => selectedAssetIds.has(String(item.id))).length;
+      successSelectAll.checked = selectedCount === list.length;
+      successSelectAll.indeterminate = selectedCount > 0 && selectedCount < list.length;
+    }
+
     function showToast(message) {
       toast.textContent = message;
       toast.classList.remove('hidden');
@@ -1558,6 +1628,17 @@
       toastTimer = setTimeout(() => {
         toast.classList.add('hidden');
       }, 2200);
+    }
+
+    function syncQueueHint() {
+      const hasItems = queueStrip.children.length > 0 && !queueStrip.classList.contains('hidden');
+      if (!hasItems) {
+        queueHint.classList.add('hidden');
+        return;
+      }
+      const canScroll = queueStrip.scrollWidth > queueStrip.clientWidth + 4;
+      const nearEnd = queueStrip.scrollLeft + queueStrip.clientWidth >= queueStrip.scrollWidth - 4;
+      queueHint.classList.toggle('hidden', !(canScroll && !nearEnd));
     }
 
     function getModelDisplayName(modelId) {
