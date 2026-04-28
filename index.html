@@ -197,6 +197,8 @@
     </div>
   </div>
 
+  <div id="toast" class="pointer-events-none fixed left-1/2 top-4 z-[120] hidden -translate-x-1/2 rounded-full bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl"></div>
+
   <script>
     const CONFIG = {
       S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co",
@@ -350,6 +352,8 @@
     const batchCount = document.getElementById('batchCount');
     const batchRetryBtn = document.getElementById('batchRetryBtn');
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+    const toast = document.getElementById('toast');
+    let toastTimer = null;
 
     uploadBtn.addEventListener('click', openPicker);
     adminToggle.addEventListener('click', () => setPage());
@@ -1234,12 +1238,75 @@
       if (!ids.length) return;
       if (!window.confirm(t('deleteConfirm'))) return;
       const all = [...items, ...failedAssets];
-      for (const id of ids) {
-        const item = all.find(entry => String(entry.id) === String(id));
-        if (item) await deleteAsset(item, true);
+      const selectedItems = ids
+        .map(id => all.find(entry => String(entry.id) === String(id)))
+        .filter(Boolean);
+
+      const storagePaths = Array.from(new Set(selectedItems
+        .map(item => item.storage_path)
+        .filter(Boolean)));
+
+      const dbIds = Array.from(new Set(selectedItems
+        .map(item => item.id)
+        .filter(id => id && !String(id).startsWith('tmp_'))));
+
+      // 1) 优先批量删除 Storage 文件
+      if (storagePaths.length) {
+        try {
+          await client.storage.from(CONFIG.BUCKET).remove(storagePaths);
+        } catch (error) {
+          console.error('Batch storage delete failed:', error);
+        }
       }
+
+      // 2) 再批量删除 DB 记录
+      let dbDeletedCount = 0;
+      let dbFailedCount = 0;
+      if (dbIds.length) {
+        try {
+          const { error } = await client.from('inspirations').delete().in('id', dbIds);
+          if (error) throw error;
+          dbDeletedCount = dbIds.length;
+        } catch (error) {
+          console.error('Batch DB delete failed, fallback to single delete:', error);
+          // 回退逐条删除，尽量保证可用性
+          for (const dbId of dbIds) {
+            try {
+              const { error: singleError } = await client.from('inspirations').delete().eq('id', dbId);
+              if (singleError) throw singleError;
+              dbDeletedCount += 1;
+            } catch (singleError) {
+              console.error('Single DB delete failed:', dbId, singleError);
+              dbFailedCount += 1;
+            }
+          }
+        }
+      }
+
+      // 3) 本地状态同步移除
+      const selectedIdSet = new Set(ids.map(String));
+      const selectedPathSet = new Set(storagePaths);
+      items = items.filter(item => !selectedIdSet.has(String(item.id)));
+      failedAssets = failedAssets.filter(item =>
+        !selectedIdSet.has(String(item.id)) &&
+        !(item.storage_path && selectedPathSet.has(item.storage_path))
+      );
+      persistCache();
+      persistFailedAssets();
       selectedAssetIds.clear();
+      renderGallery();
+      renderAdminLists();
       syncBatchBar();
+
+      if (dbIds.length) {
+        const failed = Math.max(dbIds.length - dbDeletedCount, dbFailedCount);
+        const message = failed > 0
+          ? `批量删除完成：数据库成功 ${dbDeletedCount}，失败 ${failed}`
+          : `批量删除成功：数据库已删除 ${dbDeletedCount} 条`;
+        showToast(message);
+      } else {
+        showToast('批量删除完成');
+      }
     }
 
     async function batchRetrySelected() {
@@ -1372,6 +1439,15 @@
       batchCount.textContent = currentLang === 'zh'
         ? `${t('batchSelected')} ${count} ${t('batchSelectedSuffix')}`
         : `${count} ${t('batchSelected')}`;
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.remove('hidden');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 2200);
     }
 
     function getModelDisplayName(modelId) {
