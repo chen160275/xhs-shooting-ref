@@ -427,6 +427,7 @@
     let currentLang = localStorage.getItem(LANG_KEY) || 'zh';
     let currentModel = localStorage.getItem(MODEL_KEY) || MODELS[0];
     let currentAccessRole = 'none';
+    let pendingAdminAfterAuth = false;
     let debugEnabled = localStorage.getItem(DEBUG_KEY) === '1';
     if (!MODELS.includes(currentModel)) currentModel = MODELS[0];
     let currentPage = new URLSearchParams(window.location.search).get('page') === 'admin' ? 'admin' : 'home';
@@ -525,7 +526,11 @@
     init();
 
     async function init() {
-      await ensureAuthSession();
+      refreshAccessRole();
+      if (currentPage === 'admin' && currentAccessRole === 'none') {
+        pendingAdminAfterAuth = true;
+        await ensureAuthSession();
+      }
       refreshAccessRole();
       renderStaticText();
       renderFromCache();
@@ -1275,6 +1280,13 @@
         persistAccessByRole(role, pwd);
         closeAuthModal();
         await refreshQuotaPanel();
+        if (pendingAdminAfterAuth) {
+          pendingAdminAfterAuth = false;
+          currentPage = 'admin';
+          const url = new URL(window.location.href);
+          url.searchParams.set('page', 'admin');
+          window.history.replaceState({}, '', url.toString());
+        }
         syncPageUI();
         showToast(role === 'master' ? 'MASTER' : 'TRIAL');
       } catch (error) {
@@ -1289,6 +1301,7 @@
       sessionStorage.removeItem('access_pwd');
       refreshAccessRole();
       syncPageUI();
+      pendingAdminAfterAuth = currentPage === 'admin';
       openAuthModal();
     }
 
@@ -1585,8 +1598,15 @@
     }
 
     function setPage(page) {
-      currentPage = currentPage === 'home' ? 'admin' : 'home';
-      if (page === 'home' || page === 'admin') currentPage = page;
+      refreshAccessRole();
+      let nextPage = currentPage === 'home' ? 'admin' : 'home';
+      if (page === 'home' || page === 'admin') nextPage = page;
+      if (nextPage === 'admin' && currentAccessRole === 'none') {
+        pendingAdminAfterAuth = true;
+        openAuthModal();
+        return;
+      }
+      currentPage = nextPage;
       const url = new URL(window.location.href);
       if (currentPage === 'admin') url.searchParams.set('page', 'admin');
       else url.searchParams.delete('page');
