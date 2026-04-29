@@ -331,7 +331,7 @@
       '姿态': ['站姿', '坐姿', '蹲跪', '动态', '躺卧'],
       '构图': ['全身', '七分', '半身', '特写'],
       '环境': ['日光', '柔光', '室内', '夜景', '黄昏'],
-      '素材': ['商品', '店面', '纯景', '有人(忽略此项)']
+      '素材': ['商品', '店面', '景观', '有人(忽略此项)']
     };
     const TAG_STYLE = {
       '视角': 'bg-black text-white',
@@ -952,7 +952,29 @@
             content: [
               {
                 type: 'text',
-                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"构图":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；构图=${JSON.stringify(DICTIONARY['构图'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：识别视角/姿态/构图/环境，素材强制为“有人(忽略此项)”。2) 无人：has_human必须为false，视角/姿态/构图必须返回["无"]，只识别环境与素材，素材只能从[商品,店面,纯景]选择1个。禁止在无人场景返回人类姿态标签。3) 每个需要识别的维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
+                text: `
+你是一个专业的摄影分析师。请严格按照以下逻辑返回 JSON，不得包含任何解释。
+
+第一步：判断画面中是否存在人类主体（has_human: Boolean）。
+
+场景 A (has_human: true)：
+- 必须识别维度：[视角]、[姿态]、[构图]、[环境]。
+- 标签必须从词典中选1个：视角=${JSON.stringify(DICTIONARY['视角'])}，姿态=${JSON.stringify(DICTIONARY['姿态'])}，构图=${JSON.stringify(DICTIONARY['构图'])}，环境=${JSON.stringify(DICTIONARY['环境'])}。
+- [素材] 维度强制填充为："有人(忽略此项)"。
+
+场景 B (has_human: false)：
+- 必须识别维度：[环境]、[素材]。
+- 标签必须从词典中选1个：环境=${JSON.stringify(DICTIONARY['环境'])}，素材=['商品', '店面', '景观']。
+- 强制：[视角]、[姿态]、[构图] 这三个字段必须返回 null。
+
+输出格式示例：
+{
+  "has_human": true,
+  "tags": { "视角": ["正面"], "姿态": ["站姿"], "构图": ["全身"], "环境": ["日光"], "素材": ["有人(忽略此项)"] },
+  "quote": "20字内摄影引导",
+  "lens": "标准 50mm"
+}
+`
               },
               {
                 type: 'image_url',
@@ -1675,8 +1697,13 @@
 
     function getDisplayDims(tags) {
       const material = (tags['素材'] || [])[0];
+      // 如果素材标签是“有人(忽略此项)”，说明是有人场景
       const isHumanScene = material === '有人(忽略此项)';
-      return isHumanScene ? ['视角', '姿态', '构图', '环境'] : ['环境', '素材'];
+      
+      // 有人：展示人像4维度； 无人：展示 环境+素材
+      return isHumanScene 
+        ? ['视角', '姿态', '构图', '环境'] 
+        : ['环境', '素材'];
     }
 
     function parseHumanFlag(aiData) {
