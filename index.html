@@ -2133,7 +2133,8 @@
       }
 
       // 3) 本地状态同步移除
-      const selectedIdSet = new Set(ids.map(String));
+      const deletedIds = selectedItems.map(item => String(item.id));
+      const selectedIdSet = new Set(deletedIds);
       const selectedPathSet = new Set(storagePaths);
       items = items.filter(item => !selectedIdSet.has(String(item.id)));
       failedAssets = failedAssets.filter(item =>
@@ -2143,7 +2144,7 @@
       selectedItems.forEach(item => forgetAssetRole(item));
       persistCache();
       persistFailedAssets();
-      selectedAssetIds.clear();
+      ids.forEach(id => selectedAssetIds.delete(String(id)));
       renderGallery();
       renderAdminLists();
       syncBatchBar();
