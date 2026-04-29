@@ -1620,46 +1620,78 @@
     }
 
     function parseAIContent(result) {
-      if (result && typeof result === 'object' && result.tags) {
-        return result;
-      }
       const envelope = (result && typeof result === 'object' && result.data && typeof result.data === 'object')
         ? result.data
         : result;
-      const message = envelope?.choices?.[0]?.message;
-      const content = message?.content;
-
-      if (!content && typeof envelope?.output_text === 'string') {
-        return parseJSONStringLoose(envelope.output_text);
+      const candidates = collectAIContentCandidates(envelope);
+      for (const candidate of candidates) {
+        try {
+          const parsed = parseAIContentCandidate(candidate);
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch (error) {
+          // Try next candidate format
+        }
       }
+      throw new Error('empty ai content');
+    }
 
-      if (!content && Array.isArray(envelope?.output)) {
-        const outputText = envelope.output
-          .map(block => Array.isArray(block?.content)
-            ? block.content.map(part => part?.text || '').join('\n')
-            : (block?.text || ''))
+    function collectAIContentCandidates(envelope) {
+      const out = [];
+      const add = (value) => {
+        if (value === undefined || value === null) return;
+        out.push(value);
+      };
+
+      add(envelope);
+      add(envelope?.choices?.[0]?.message?.content);
+      add(envelope?.choices?.[0]?.message?.tool_calls);
+      add(envelope?.choices?.[0]?.message?.function_call?.arguments);
+      add(envelope?.choices?.[0]?.text);
+      add(envelope?.output_text);
+      add(envelope?.output);
+      add(envelope?.candidates);
+      add(envelope?.result);
+      add(envelope?.message);
+
+      return out;
+    }
+
+    function parseAIContentCandidate(candidate) {
+      if (!candidate) throw new Error('empty candidate');
+      if (typeof candidate === 'object' && candidate.tags) return candidate;
+
+      if (Array.isArray(candidate)) {
+        // OpenAI tool_calls: [{ function: { arguments: "..." } }]
+        if (candidate[0]?.function?.arguments) {
+          return parseJSONStringLoose(String(candidate[0].function.arguments || ''));
+        }
+        // Gemini-like candidates
+        if (candidate[0]?.content?.parts) {
+          const text = candidate
+            .flatMap(c => c?.content?.parts || [])
+            .map(part => part?.text || '')
+            .join('\n')
+            .trim();
+          return parseJSONStringLoose(text);
+        }
+        // OpenAI content array: [{type,text}]
+        const textContent = candidate
+          .map(part => typeof part === 'string' ? part : (part?.text || part?.content || ''))
           .join('\n')
           .trim();
-        if (outputText) return parseJSONStringLoose(outputText);
+        if (textContent) return parseJSONStringLoose(textContent);
+        throw new Error('empty array candidate');
       }
 
-      if (!content) {
-        throw new Error('empty ai content');
+      if (typeof candidate === 'object') {
+        if (candidate.text) return parseJSONStringLoose(String(candidate.text));
+        if (candidate.content) return parseAIContentCandidate(candidate.content);
+        if (candidate.function?.arguments) return parseJSONStringLoose(String(candidate.function.arguments));
+        if (candidate.arguments) return parseJSONStringLoose(String(candidate.arguments));
+        throw new Error('unsupported object candidate');
       }
 
-      if (typeof content === 'object' && !Array.isArray(content)) {
-        return content;
-      }
-
-      if (Array.isArray(content)) {
-        const textContent = content
-          .map(part => typeof part === 'string' ? part : (part?.text || ''))
-          .join('\n')
-          .trim();
-        return parseJSONStringLoose(textContent);
-      }
-
-      return parseJSONStringLoose(String(content));
+      return parseJSONStringLoose(String(candidate));
     }
 
     function parseJSONStringLoose(text) {
