@@ -175,6 +175,24 @@
         <div id="debugLog" class="max-h-44 overflow-y-auto space-y-1 text-[11px] text-gray-500"></div>
       </section>
 
+      <section id="quotaPanel" class="mb-4 hidden rounded-[22px] bg-white p-3 shadow-card">
+        <div class="flex items-center justify-between">
+          <div>
+            <div id="quotaPanelTitle" class="text-xs font-black tracking-wide text-gray-700">次用户额度管理</div>
+            <div class="mt-1 text-[11px] text-gray-500"><span id="quotaRemainingLabel">共享额度剩余</span>: <span id="quotaRemainingValue">-</span></div>
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2">
+          <input id="quotaInput" type="number" min="0" step="1" class="h-9 flex-1 rounded-xl border border-gray-200 px-3 text-[12px] font-semibold text-gray-700" placeholder="输入新的额度值">
+          <button id="quotaResetBtn" class="h-9 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">更新</button>
+        </div>
+      </section>
+
+      <section id="trialQuotaPanel" class="mb-4 hidden rounded-[22px] bg-white p-3 shadow-card">
+        <div id="trialQuotaTitle" class="text-xs font-black tracking-wide text-gray-700">次用户剩余额度</div>
+        <div class="mt-1 text-[11px] text-gray-500"><span id="trialQuotaRemainingLabel">共享额度剩余</span>: <span id="trialQuotaRemainingValue">-</span></div>
+      </section>
+
       <div class="mb-24 flex justify-end">
         <button id="debugToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">调试: 关</button>
       </div>
@@ -291,7 +309,14 @@
         duplicateFile: '该图片已存在',
         duplicateQueued: '该图片已在识别队列中，请勿重复提交',
         duplicateAskRetry: '该图片已经识别过了。是否按当前模型重新识别？',
-        accessPwdMissing: '缺少 access_pwd，请先登录后再识别'
+        accessPwdMissing: '缺少 access_pwd，请先登录后再识别',
+        trialBatchLimit: '次用户单次最多上传 5 张图片',
+        quotaPanelTitle: '次用户额度管理',
+        quotaRemainingLabel: '共享额度剩余',
+        quotaResetBtn: '更新',
+        quotaInputPlaceholder: '输入新的额度值',
+        trialQuotaTitle: '次用户剩余额度',
+        quotaResetPrompt: '请输入重置后的额度（整数）'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -337,7 +362,14 @@
         duplicateFile: 'This image already exists',
         duplicateQueued: 'This image is already in queue',
         duplicateAskRetry: 'This image was already recognized. Re-run recognition with current model?',
-        accessPwdMissing: 'Missing access_pwd. Please login first.'
+        accessPwdMissing: 'Missing access_pwd. Please login first.',
+        trialBatchLimit: 'Trial user can upload up to 5 images per batch',
+        quotaPanelTitle: 'Trial Quota Manager',
+        quotaRemainingLabel: 'Shared quota remaining',
+        quotaResetBtn: 'Update',
+        quotaInputPlaceholder: 'Enter new quota value',
+        trialQuotaTitle: 'Trial Remaining Quota',
+        quotaResetPrompt: 'Enter new quota (integer)'
       }
     };
     const DICTIONARY = {
@@ -371,6 +403,7 @@
     let showGrid = false;
     let currentLang = localStorage.getItem(LANG_KEY) || 'zh';
     let currentModel = localStorage.getItem(MODEL_KEY) || MODELS[0];
+    let currentAccessRole = 'none';
     let debugEnabled = localStorage.getItem(DEBUG_KEY) === '1';
     if (!MODELS.includes(currentModel)) currentModel = MODELS[0];
     let currentPage = new URLSearchParams(window.location.search).get('page') === 'admin' ? 'admin' : 'home';
@@ -405,6 +438,12 @@
     const batchCount = document.getElementById('batchCount');
     const batchRetryBtn = document.getElementById('batchRetryBtn');
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+    const quotaPanel = document.getElementById('quotaPanel');
+    const trialQuotaPanel = document.getElementById('trialQuotaPanel');
+    const quotaRemainingValue = document.getElementById('quotaRemainingValue');
+    const trialQuotaRemainingValue = document.getElementById('trialQuotaRemainingValue');
+    const quotaInput = document.getElementById('quotaInput');
+    const quotaResetBtn = document.getElementById('quotaResetBtn');
     const toast = document.getElementById('toast');
     let toastTimer = null;
     const debugEntries = [];
@@ -431,6 +470,7 @@
     queueStrip.addEventListener('scroll', syncQueueHint);
     batchRetryBtn.addEventListener('click', batchRetrySelected);
     batchDeleteBtn.addEventListener('click', batchDeleteSelected);
+    quotaResetBtn.addEventListener('click', resetTrialQuota);
     successSelectAll.addEventListener('change', toggleSelectAllSuccess);
     langToggle.addEventListener('click', toggleLanguage);
     upInput.addEventListener('change', onUploadChange);
@@ -452,9 +492,11 @@
     init();
 
     async function init() {
+      refreshAccessRole();
       renderStaticText();
       renderFromCache();
       await syncRemote();
+      await refreshQuotaPanel();
       syncPageUI();
     }
 
@@ -493,6 +535,12 @@
       document.getElementById('adminSubtitle').textContent = t('adminSubtitle');
       document.getElementById('adminFailedTitle').textContent = t('adminFailedTitle');
       document.getElementById('adminSuccessTitle').textContent = t('adminSuccessTitle');
+      document.getElementById('quotaPanelTitle').textContent = t('quotaPanelTitle');
+      document.getElementById('trialQuotaTitle').textContent = t('trialQuotaTitle');
+      document.getElementById('quotaRemainingLabel').textContent = t('quotaRemainingLabel');
+      document.getElementById('trialQuotaRemainingLabel').textContent = t('quotaRemainingLabel');
+      quotaResetBtn.textContent = t('quotaResetBtn');
+      quotaInput.placeholder = t('quotaInputPlaceholder');
       modelSelect.setAttribute('aria-label', t('modelLabel'));
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
@@ -523,8 +571,14 @@
     }
 
     async function onUploadChange(e) {
+      refreshAccessRole();
       const files = Array.from(e.target.files || []);
       if (!files.length) return;
+      if (currentAccessRole === 'trial' && files.length > 5) {
+        window.alert(t('trialBatchLimit'));
+        upInput.value = '';
+        return;
+      }
       files.forEach(file => enqueueUploadTask(file));
       processUploadQueue();
       upInput.value = '';
@@ -1032,8 +1086,8 @@
 
     async function requestAI(imageUrl, base64Fallback = '') {
       const imageInput = base64Fallback || imageUrl;
-      const endpoint = `${CONFIG.S_URL}${CONFIG.AI_PROXY_PATH}`;
       const accessPwd = getAccessPwd();
+      const endpoint = `${CONFIG.S_URL}${CONFIG.AI_PROXY_PATH}`;
 
       if (!imageInput) {
         throw new Error('Missing image input');
@@ -1083,15 +1137,7 @@
         }]
       };
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': CONFIG.S_KEY,
-          'Authorization': `Bearer ${accessPwd}`
-        },
-        body: JSON.stringify(payload)
-      });
+      const response = await callAiProxy(payload, accessPwd);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -1113,6 +1159,32 @@
       }
     }
 
+    async function callAiProxy(payload, accessPwd = '') {
+      const endpoint = `${CONFIG.S_URL}${CONFIG.AI_PROXY_PATH}`;
+      const pwd = accessPwd || getAccessPwd();
+      return await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': CONFIG.S_KEY,
+          'Authorization': `Bearer ${pwd}`
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    function refreshAccessRole() {
+      const localPwd = String(localStorage.getItem('access_pwd') || '').trim();
+      const sessionPwd = String(sessionStorage.getItem('access_pwd') || '').trim();
+      if (localPwd) {
+        currentAccessRole = 'master';
+      } else if (sessionPwd) {
+        currentAccessRole = 'trial';
+      } else {
+        currentAccessRole = 'none';
+      }
+    }
+
     function getAccessPwd() {
       return String(
         localStorage.getItem('access_pwd') ||
@@ -1120,6 +1192,47 @@
         window.ACCESS_PWD ||
         ''
       ).trim();
+    }
+
+    async function refreshQuotaPanel() {
+      refreshAccessRole();
+      if (currentAccessRole !== 'master' && currentAccessRole !== 'trial') return;
+      try {
+        const response = await callAiProxy({ action: 'quota_status' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+        const remainingText = String(data?.remaining ?? '-');
+        quotaRemainingValue.textContent = remainingText;
+        trialQuotaRemainingValue.textContent = remainingText;
+        if (currentAccessRole === 'master') quotaInput.value = remainingText;
+      } catch (error) {
+        logCaughtError('refreshQuotaPanel', error);
+        quotaRemainingValue.textContent = '-';
+        trialQuotaRemainingValue.textContent = '-';
+      }
+    }
+
+    async function resetTrialQuota() {
+      refreshAccessRole();
+      if (currentAccessRole !== 'master') return;
+      const next = Number(quotaInput.value);
+      if (!Number.isFinite(next) || next < 0) {
+        window.alert('额度必须是非负整数');
+        return;
+      }
+      try {
+        const response = await callAiProxy({ action: 'quota_reset', remaining: Math.floor(next) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+        const remainingText = String(data?.remaining ?? '-');
+        quotaRemainingValue.textContent = remainingText;
+        trialQuotaRemainingValue.textContent = remainingText;
+        quotaInput.value = remainingText;
+        showToast(`${t('quotaRemainingLabel')}: ${data?.remaining ?? '-'}`);
+      } catch (error) {
+        logCaughtError('resetTrialQuota', error);
+        window.alert(String(error?.message || 'reset quota failed'));
+      }
     }
 
     function parseAIContent(result) {
@@ -1363,6 +1476,7 @@
     }
 
     function syncPageUI() {
+      refreshAccessRole();
       homePage.classList.toggle('hidden', currentPage !== 'home');
       adminPage.classList.toggle('hidden', currentPage !== 'admin');
       adminToggle.textContent = currentPage === 'admin' ? '首页' : t('adminToggle');
@@ -1375,6 +1489,14 @@
       gridToggle.style.display = currentPage === 'admin' ? 'none' : '';
       clearFiltersBtn.classList.toggle('hidden', currentPage === 'admin');
       debugPanel.classList.toggle('hidden', !(currentPage === 'admin' && debugEnabled));
+      quotaPanel.classList.toggle('hidden', !(currentPage === 'admin' && currentAccessRole === 'master'));
+      trialQuotaPanel.classList.toggle('hidden', !(currentPage === 'admin' && currentAccessRole === 'trial'));
+      if (currentPage === 'admin' && currentAccessRole === 'master') {
+        refreshQuotaPanel();
+      }
+      if (currentPage === 'admin' && currentAccessRole === 'trial') {
+        refreshQuotaPanel();
+      }
       syncBatchBar();
     }
 
@@ -1672,8 +1794,13 @@
     }
 
     async function batchRetrySelected() {
+      refreshAccessRole();
       const ids = Array.from(selectedAssetIds);
       if (!ids.length) return;
+      if (currentAccessRole === 'trial' && ids.length > 5) {
+        window.alert(t('trialBatchLimit'));
+        return;
+      }
       if (!window.confirm(t('retryConfirm'))) return;
       const all = [...items, ...failedAssets];
       const targets = ids
