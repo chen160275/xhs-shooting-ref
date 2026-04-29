@@ -174,6 +174,7 @@
 
       <section id="debugPanel" class="mb-4 hidden rounded-[22px] bg-white p-3 shadow-card">
         <div class="mb-2 text-xs font-black tracking-wide text-gray-700">DEBUG LOG</div>
+        <div id="debugSummary" class="mb-2 rounded-lg bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-600">暂无异常摘要</div>
         <div id="debugLog" class="max-h-44 overflow-y-auto space-y-1 text-[11px] text-gray-500"></div>
       </section>
 
@@ -269,7 +270,7 @@
     const CACHE_KEY = 'pro_creation_station_cache_v1';
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const ROLE_HINT_KEY = 'pro_creation_station_role_hint_v1';
-    const APP_VERSION = '17.1.4';
+    const APP_VERSION = '17.1.6';
     const VERSION_CHECK_URL = '/version.json';
     const VERSION_CHECK_INTERVAL_MS = 45000;
     const VERSION_RELOAD_GUARD_KEY = 'pro_creation_station_version_reload_guard_v1';
@@ -493,6 +494,7 @@
     const queueHint = document.getElementById('queueHint');
     const debugPanel = document.getElementById('debugPanel');
     const debugLog = document.getElementById('debugLog');
+    const debugSummary = document.getElementById('debugSummary');
     const batchBar = document.getElementById('batchBar');
     const batchCount = document.getElementById('batchCount');
     const batchRetryBtn = document.getElementById('batchRetryBtn');
@@ -1444,10 +1446,63 @@
       try {
         return parseAIContent(result);
       } catch (error) {
+        const repaired = await tryRepairAIResult(result, accessPwd);
+        if (repaired) return repaired;
         logCaughtError('requestAI.parseAIContent', error, { model: currentModel, responsePreview: safeStringify(result).slice(0, 240) });
         console.error('AI 原始返回解析失败:', result);
         throw new Error('AI 返回数据损坏 (JSON Error)');
       }
+    }
+
+    async function tryRepairAIResult(result, accessPwd) {
+      try {
+        const rawText = extractAssistantRawText(result).slice(0, 6000);
+        if (!rawText) return null;
+        const repairPayload = {
+          model: currentModel,
+          max_tokens: 500,
+          response_format: { type: 'json_object' },
+          messages: [{
+            role: 'user',
+            content: `请将下面内容转换成符合要求的 JSON 对象，只返回 JSON，不要任何解释。\n\n${rawText}`
+          }]
+        };
+        const repairResponse = await callAiProxy(repairPayload, accessPwd);
+        if (!repairResponse.ok) return null;
+        const repairResult = await repairResponse.json();
+        return parseAIContent(repairResult);
+      } catch (error) {
+        logCaughtError('tryRepairAIResult', error, { model: currentModel });
+        return null;
+      }
+    }
+
+    function extractAssistantRawText(result) {
+      const envelope = (result && typeof result === 'object' && result.data && typeof result.data === 'object')
+        ? result.data
+        : result;
+
+      const content = envelope?.choices?.[0]?.message?.content;
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        return content.map(part => {
+          if (typeof part === 'string') return part;
+          if (typeof part?.text === 'string') return part.text;
+          if (typeof part?.text?.value === 'string') return part.text.value;
+          return '';
+        }).join('\n').trim();
+      }
+
+      if (typeof envelope?.output_text === 'string') return envelope.output_text;
+      if (Array.isArray(envelope?.output)) {
+        return envelope.output.map(block => {
+          if (typeof block?.text === 'string') return block.text;
+          if (Array.isArray(block?.content)) return block.content.map(part => part?.text || '').join('\n');
+          return '';
+        }).join('\n').trim();
+      }
+
+      return '';
     }
 
     async function callAiProxy(payload, accessPwd = '') {
@@ -2051,24 +2106,24 @@
           : 'bg-gray-200 text-gray-600';
       const deletable = canCurrentUserDelete(item);
       return `
-        <div class="flex gap-3 rounded-2xl bg-paper p-3">
-          <div class="relative">
-            <img data-card-id="${escapeHtml(String(item.id))}" src="${escapeHtml(item.image_url || '')}" class="h-24 w-20 cursor-pointer rounded-xl object-cover bg-gray-100">
-            <input data-select-id="${escapeHtml(String(item.id))}" type="checkbox" class="absolute right-1 top-1 h-4 w-4 accent-black" ${checked ? 'checked' : ''}>
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-[11px] font-bold text-gray-500">${t('statusPrefix')}: ${statusText}</div>
-            <div class="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-gray-400">
-              <span>由 ${escapeHtml(modelName)} 识别</span>
-              ${item.status === 'success' ? `<span class="rounded-full px-2 py-0.5 text-[9px] font-bold ${roleClass}">${t('rolePrefix')}: ${escapeHtml(roleText)}</span>` : ''}
+        <div class="flex items-center gap-3 rounded-2xl bg-paper p-3">
+          <div class="flex min-w-0 flex-1 gap-3">
+            <div class="relative">
+              <img data-card-id="${escapeHtml(String(item.id))}" src="${escapeHtml(item.image_url || '')}" class="h-24 w-20 cursor-pointer rounded-xl object-cover bg-gray-100">
+              <input data-select-id="${escapeHtml(String(item.id))}" type="checkbox" class="absolute right-1 top-1 h-4 w-4 accent-black" ${checked ? 'checked' : ''}>
             </div>
-            ${item.status === 'success' ? `<div class="mt-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>` : ''}
-            <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
-            <div class="mt-3 flex gap-2">
-              ${item.status !== 'success' && canRetry ? `<button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button>` : ''}
-              <button data-action="delete" data-id="${escapeHtml(String(item.id))}" ${deletable ? '' : 'disabled'} class="rounded-full border border-gray-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide ${deletable ? 'bg-white text-gray-500' : 'cursor-not-allowed bg-gray-100 text-gray-300'}">${t('delete')}</button>
+            <div class="min-w-0 flex-1">
+              <div class="text-[11px] font-bold text-gray-500">${t('statusPrefix')}: ${statusText}</div>
+              <div class="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-gray-400">
+                <span>由 ${escapeHtml(modelName)} 识别</span>
+                ${item.status === 'success' ? `<span class="rounded-full px-2 py-0.5 text-[9px] font-bold ${roleClass}">${t('rolePrefix')}: ${escapeHtml(roleText)}</span>` : ''}
+              </div>
+              ${item.status === 'success' ? `<div class="mt-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>` : ''}
+              <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
+              ${item.status !== 'success' && canRetry ? `<div class="mt-3"><button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button></div>` : ''}
             </div>
           </div>
+          <button data-action="delete" data-id="${escapeHtml(String(item.id))}" ${deletable ? '' : 'disabled'} class="self-center rounded-full border border-gray-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide ${deletable ? 'bg-white text-gray-500' : 'cursor-not-allowed bg-gray-100 text-gray-300'}">${t('delete')}</button>
         </div>
       `;
     }
@@ -2542,12 +2597,26 @@
 
     function renderDebugLogPanel() {
       debugLog.innerHTML = '';
+      debugSummary.textContent = buildDebugSummary();
       debugEntries.forEach(entry => {
         const row = document.createElement('div');
         row.className = 'rounded bg-gray-50 px-2 py-1';
         row.textContent = `[${entry.stamp}] ${entry.type}: ${safeStringify(entry.payload)}`;
         debugLog.appendChild(row);
       });
+    }
+
+    function buildDebugSummary() {
+      const latestError = debugEntries.find(entry =>
+        entry.type === 'caught_error' ||
+        entry.type === 'window_error' ||
+        entry.type === 'unhandled_rejection'
+      );
+      if (!latestError) return currentLang === 'zh' ? '暂无异常摘要' : 'No issues captured yet';
+      const p = latestError.payload || {};
+      const scope = p.scope || latestError.type;
+      const message = p?.error?.message || p.message || p.detail || 'unknown';
+      return `${scope}: ${String(message).slice(0, 140)}`;
     }
 
     function normalizeDebugPayload(payload) {
