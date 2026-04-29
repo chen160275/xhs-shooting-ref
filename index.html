@@ -230,10 +230,8 @@
     const CONFIG = {
       S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co",
       S_KEY: "sb_publishable_tDg0y9w1HZFb_oV5Gb7VHg_Sh_g-1Cf",
-      K_KEY: "sk-8or80CblH3SSruV1VyNpfpAJP59YTiFPIfu8toxbYDxWyN8K",
       BUCKET: "Gallery01",
-      K_URL: "https://api.bltcy.ai/v1/chat/completions",
-      K_MODEL: "claude-haiku-4-5-20251001"
+      AI_PROXY_PATH: "/functions/v1/ai-proxy"
     };
 
     const CACHE_KEY = 'pro_creation_station_cache_v1';
@@ -292,7 +290,8 @@
         queuedStandby: '待命',
         duplicateFile: '该图片已存在',
         duplicateQueued: '该图片已在识别队列中，请勿重复提交',
-        duplicateAskRetry: '该图片已经识别过了。是否按当前模型重新识别？'
+        duplicateAskRetry: '该图片已经识别过了。是否按当前模型重新识别？',
+        accessPwdMissing: '缺少 access_pwd，请先登录后再识别'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -337,7 +336,8 @@
         queuedStandby: 'Standby',
         duplicateFile: 'This image already exists',
         duplicateQueued: 'This image is already in queue',
-        duplicateAskRetry: 'This image was already recognized. Re-run recognition with current model?'
+        duplicateAskRetry: 'This image was already recognized. Re-run recognition with current model?',
+        accessPwdMissing: 'Missing access_pwd. Please login first.'
       }
     };
     const DICTIONARY = {
@@ -1031,19 +1031,19 @@
     }
 
     async function requestAI(imageUrl, base64Fallback = '') {
-      const endpoint = CONFIG.K_URL;
-      const apiKey = CONFIG.K_KEY;
       const imageInput = base64Fallback || imageUrl;
+      const endpoint = `${CONFIG.S_URL}${CONFIG.AI_PROXY_PATH}`;
+      const accessPwd = getAccessPwd();
 
-      if (!apiKey) {
-        throw new Error('Missing AI Key');
-      }
       if (!imageInput) {
         throw new Error('Missing image input');
       }
+      if (!accessPwd) {
+        throw new Error(t('accessPwdMissing'));
+      }
 
       const payload = {
-        model: currentModel || CONFIG.K_MODEL,
+        model: currentModel,
         max_tokens: 400,
         response_format: { type: 'json_object' },
         messages: [{
@@ -1087,7 +1087,8 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'apikey': CONFIG.S_KEY,
+          'Authorization': `Bearer ${accessPwd}`
         },
         body: JSON.stringify(payload)
       });
@@ -1110,6 +1111,15 @@
         console.error('AI 原始返回解析失败:', result);
         throw new Error('AI 返回数据损坏 (JSON Error)');
       }
+    }
+
+    function getAccessPwd() {
+      return String(
+        localStorage.getItem('access_pwd') ||
+        sessionStorage.getItem('access_pwd') ||
+        window.ACCESS_PWD ||
+        ''
+      ).trim();
     }
 
     function parseAIContent(result) {
