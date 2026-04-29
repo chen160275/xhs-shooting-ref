@@ -1080,6 +1080,7 @@
     }
 
     function canCurrentUserDelete(item) {
+      refreshAccessRole();
       if (currentAccessRole !== 'trial') return true;
       return item?.owner_role === 'trial';
     }
@@ -1615,8 +1616,28 @@
     }
 
     function parseAIContent(result) {
-      const message = result?.choices?.[0]?.message;
+      if (result && typeof result === 'object' && result.tags) {
+        return result;
+      }
+      const envelope = (result && typeof result === 'object' && result.data && typeof result.data === 'object')
+        ? result.data
+        : result;
+      const message = envelope?.choices?.[0]?.message;
       const content = message?.content;
+
+      if (!content && typeof envelope?.output_text === 'string') {
+        return parseJSONStringLoose(envelope.output_text);
+      }
+
+      if (!content && Array.isArray(envelope?.output)) {
+        const outputText = envelope.output
+          .map(block => Array.isArray(block?.content)
+            ? block.content.map(part => part?.text || '').join('\n')
+            : (block?.text || ''))
+          .join('\n')
+          .trim();
+        if (outputText) return parseJSONStringLoose(outputText);
+      }
 
       if (!content) {
         throw new Error('empty ai content');
@@ -2092,6 +2113,7 @@
     }
 
     async function deleteAsset(item, skipConfirm = false) {
+      refreshAccessRole();
       if (!canCurrentUserDelete(item)) {
         window.alert(t('deleteDeniedTrial'));
         return;
@@ -2122,6 +2144,7 @@
     }
 
     async function batchDeleteSelected() {
+      refreshAccessRole();
       const ids = Array.from(selectedAssetIds);
       if (!ids.length) return;
       if (!window.confirm(t('deleteConfirm'))) return;
