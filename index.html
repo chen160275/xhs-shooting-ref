@@ -760,9 +760,9 @@
         result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
         result['素材'] = ['有人(忽略此项)'];
       } else {
-        result['视角'] = ['无'];
-        result['姿态'] = ['无'];
-        result['构图'] = ['无'];
+        result['视角'] = null;
+        result['姿态'] = null;
+        result['构图'] = null;
         result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
         result['素材'] = [pickAllowedTag(input['素材'], '素材', '纯景', ['商品', '店面', '纯景'])];
       }
@@ -952,7 +952,7 @@
             content: [
               {
                 type: 'text',
-                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"构图":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；构图=${JSON.stringify(DICTIONARY['构图'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：只识别视角/姿态/构图/环境，素材强制为“有人(忽略此项)”。2) 无人：视角/姿态/构图/环境都返回“无”，素材只能从[商品,店面,纯景]选择1个。3) 每个维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
+                text: `你必须先判断是否有人体主体，并返回 has_human(Boolean)。严格只返回JSON，不要解释。格式：{"has_human":true,"tags":{"视角":[],"姿态":[],"构图":[],"环境":[],"素材":[]},"quote":"20字内引导","lens":"固定焦段"}。标签词典：视角=${JSON.stringify(DICTIONARY['视角'])}；姿态=${JSON.stringify(DICTIONARY['姿态'])}；构图=${JSON.stringify(DICTIONARY['构图'])}；环境=${JSON.stringify(DICTIONARY['环境'])}；素材=${JSON.stringify(DICTIONARY['素材'])}。分流规则：1) 有人：识别视角/姿态/构图/环境，素材强制为“有人(忽略此项)”。2) 无人：has_human必须为false，视角/姿态/构图必须返回["无"]，只识别环境与素材，素材只能从[商品,店面,纯景]选择1个。禁止在无人场景返回人类姿态标签。3) 每个需要识别的维度数组必须且仅有1个标签。4) lens必须从${JSON.stringify(LENS_OPTIONS)}中选1个。`
               },
               {
                 type: 'image_url',
@@ -1084,7 +1084,8 @@
           const value = rawTags[dim];
           const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
           const normalized = list.map(v => String(v).trim()).filter(Boolean);
-          if (!(normalized.length === 1 && normalized[0] === '无')) {
+          const validNull = normalized.length === 0 || (normalized.length === 1 && ['无', 'null', 'NULL'].includes(normalized[0]));
+          if (!validNull) {
             return `无人场景维度${dim}必须为无`;
           }
         }
@@ -1675,7 +1676,7 @@
     function getDisplayDims(tags) {
       const material = (tags['素材'] || [])[0];
       const isHumanScene = material === '有人(忽略此项)';
-      return isHumanScene ? ['视角', '姿态', '构图', '环境'] : ['素材'];
+      return isHumanScene ? ['视角', '姿态', '构图', '环境'] : ['环境', '素材'];
     }
 
     function parseHumanFlag(aiData) {
