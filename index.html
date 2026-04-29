@@ -247,7 +247,7 @@
   </div>
 
   <div id="toast" class="pointer-events-none fixed left-1/2 top-4 z-[120] hidden -translate-x-1/2 rounded-full bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl"></div>
-  <div id="versionBadge" class="fixed bottom-3 right-3 z-[119] rounded-full bg-black/80 px-2.5 py-1 text-[10px] font-bold text-white shadow-lg">v17.1.8</div>
+  <div id="versionBadge" class="fixed bottom-3 right-3 z-[119] rounded-full bg-black/80 px-2.5 py-1 text-[10px] font-bold text-white shadow-lg">v17.1.10</div>
 
   <div id="authModal" class="fixed inset-0 z-[130] hidden bg-black/45 px-5">
     <div class="mx-auto mt-28 max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
@@ -270,7 +270,7 @@
     const CACHE_KEY = 'pro_creation_station_cache_v1';
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const ROLE_HINT_KEY = 'pro_creation_station_role_hint_v1';
-    const APP_VERSION = '17.1.8';
+    const APP_VERSION = '17.1.10';
     const VERSION_CHECK_URL = '/version.json';
     const VERSION_CHECK_INTERVAL_MS = 45000;
     const VERSION_RELOAD_GUARD_KEY = 'pro_creation_station_version_reload_guard_v1';
@@ -354,7 +354,9 @@
         authPlaceholder: '输入密码',
         authSubmit: '登录',
         authInvalid: '密码无效，请重试',
-        versionLabel: '版本'
+        versionLabel: '版本',
+        trialLimitReached: '额度不足，请联系主用户补充额度',
+        aiJsonErrorFriendly: '识别结果格式异常，请重试或切换模型'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -425,7 +427,9 @@
         authPlaceholder: 'Password',
         authSubmit: 'Sign In',
         authInvalid: 'Invalid password, please try again',
-        versionLabel: 'Version'
+        versionLabel: 'Version',
+        trialLimitReached: 'Quota reached. Ask master user to add quota.',
+        aiJsonErrorFriendly: 'Response format error. Please retry or switch model.'
       }
     };
     const DICTIONARY = {
@@ -934,7 +938,7 @@
         }
         console.error('上传链路失败:', error);
         logCaughtError('uploadSingle', error, { tempId, fileName, model: currentModel });
-        const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
+        const statusText = mapUserFacingError(error);
         const failedAsset = normalizeFailureRecord({
           id: tempId,
           image_url: publicUrl || previewUrl,
@@ -1424,6 +1428,12 @@
 - 标签必须从词典中选1个：环境=${JSON.stringify(DICTIONARY['环境'])}，素材=['商品', '店面', '景观']。
 - 强制：[视角]、[姿态]、[构图] 这三个字段必须返回 null。
 
+输出规则（稳定优先）：
+- 只能返回一个 JSON 对象，不能返回数组。
+- 键名固定：has_human, tags, quote, lens。
+- quote <= 20字，lens 必须从 ${JSON.stringify(LENS_OPTIONS)} 里选一个。
+- 如无法判断，使用该维度默认值，不允许空字符串或额外字段。
+
 输出格式示例：
 {
   "has_human": true,
@@ -1582,6 +1592,27 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
         quote: truncateText(compact.replace(/["“”]/g, ''), 20) || '眼神放松，肩线自然打开',
         lens: '标准 50mm'
       };
+    }
+
+    function mapUserFacingError(error) {
+      const raw = String(error?.message || error || '').trim();
+      const lower = raw.toLowerCase();
+      if (lower.includes('trial_limit_reached') || lower.includes('quota_exhausted') || lower.includes('"remaining":0')) {
+        return t('trialLimitReached');
+      }
+      if (raw.includes('AI 返回数据损坏 (JSON Error)') || raw === 'JSON Error') {
+        return t('aiJsonErrorFriendly');
+      }
+      return raw || 'Unknown Error';
+    }
+
+    function isQuotaReachedReason(reason) {
+      const text = String(reason || '').toLowerCase();
+      return text.includes('额度不足') ||
+        text.includes('quota reached') ||
+        text.includes('trial_limit_reached') ||
+        text.includes('quota_exhausted') ||
+        text.includes('"remaining":0');
     }
 
     async function callAiProxy(payload, accessPwd = '') {
@@ -2174,6 +2205,7 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
     function renderAdminRow(item) {
       const statusText = item.status === 'success' ? t('statusSuccess') : t('statusFailed');
       const reason = item.error_log || '-';
+      const quotaReached = item.status !== 'success' && isQuotaReachedReason(reason);
       const canRetry = isRetryableAsset(item);
       const checked = selectedAssetIds.has(String(item.id));
       const modelName = getModelDisplayName(item.ai_model || currentModel);
@@ -2199,6 +2231,7 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
               </div>
               ${item.status === 'success' ? `<div class="mt-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>` : ''}
               <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
+              ${quotaReached ? `<div class="mt-2 inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold text-red-600">${escapeHtml(t('trialLimitReached'))}</div>` : ''}
               ${item.status !== 'success' && canRetry ? `<div class="mt-3"><button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button></div>` : ''}
             </div>
           </div>
@@ -2321,7 +2354,7 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
         renderAdminLists();
       } catch (error) {
         if (isQueueTaskCancelled(queueId)) return;
-        const message = error.message || 'Retry Error';
+        const message = mapUserFacingError(error) || 'Retry Error';
         logCaughtError('executeRetryTask', error, { itemId: item.id, queueId, model: currentModel });
         item.ai_model = currentModel;
         item.error_log = message;
