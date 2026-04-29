@@ -572,8 +572,42 @@
         updateQueueItem(tempId, { status: t('uploadingCloud') });
 
         const contentHash = await computeFileHash(file);
-        fileName = `${contentHash}.jpg`;
-        await ensureUniqueFileName(fileName);
+        let resolvedFileName = `${contentHash}.jpg`;
+        let forceAsNewUpload = false;
+        while (true) {
+          try {
+            await ensureUniqueFileName(resolvedFileName);
+            break;
+          } catch (error) {
+            if (error?.code === 'DUPLICATE_PENDING') {
+              showToast(t('duplicateQueued'));
+              removeQueueItem(tempId);
+              return;
+            }
+            if (error?.code === 'DUPLICATE_EXISTING') {
+              const existing = error.existing || null;
+              const shouldRetry = window.confirm(t('duplicateAskRetry'));
+              if (shouldRetry) {
+                if (existing && isRetryableAsset(existing)) {
+                  retryFailedAsset(existing, true);
+                  showToast(t('aiParsing'));
+                } else {
+                  window.alert(t('retryUnavailable'));
+                }
+                removeQueueItem(tempId);
+                return;
+              }
+              forceAsNewUpload = true;
+              resolvedFileName = `${contentHash}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+              continue;
+            }
+            throw error;
+          }
+        }
+        fileName = resolvedFileName;
+        if (forceAsNewUpload) {
+          pushDebugLog('duplicate_force_upload', { fileName, model: currentModel });
+        }
         pendingFileNames.add(fileName);
         const uploadBlob = dataUrlToBlob(compressedBase64);
         const uploadResult = await uploadToSupabase(fileName, uploadBlob, (progress) => {
@@ -624,25 +658,6 @@
         renderGallery();
         renderAdminLists();
       } catch (error) {
-        if (error?.code === 'DUPLICATE_PENDING') {
-          showToast(t('duplicateQueued'));
-          removeQueueItem(tempId);
-          if (fileName) pendingFileNames.delete(fileName);
-          return;
-        }
-        if (error?.code === 'DUPLICATE_EXISTING') {
-          const existing = error.existing || null;
-          const shouldRetry = window.confirm(t('duplicateAskRetry'));
-          if (shouldRetry && existing && isRetryableAsset(existing)) {
-            retryFailedAsset(existing, true);
-            showToast(t('aiParsing'));
-          } else if (shouldRetry) {
-            window.alert(t('retryUnavailable'));
-          }
-          removeQueueItem(tempId);
-          if (fileName) pendingFileNames.delete(fileName);
-          return;
-        }
         console.error('上传链路失败:', error);
         logCaughtError('uploadSingle', error, { tempId, fileName, model: currentModel });
         const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
@@ -1496,12 +1511,14 @@
       }, 220);
 
       try {
-        const aiData = await requestAI(item.image_url);
+        const base64 = await urlToDataURL(item.image_url);
+        const aiData = await requestAI(item.image_url, base64);
         const normalized = normalizeAI(aiData);
         const updates = {
           tags: normalized.tags,
           quote: normalized.quote,
           lens: normalized.lens,
+          ai_model: currentModel,
           status: 'success',
           error_log: ''
         };
@@ -1525,6 +1542,7 @@
       } catch (error) {
         const message = error.message || 'Retry Error';
         logCaughtError('executeRetryTask', error, { itemId: item.id, queueId, model: currentModel });
+        item.ai_model = currentModel;
         item.error_log = message;
         upsertFailedAsset(item);
         await updateRemoteRecord(item, { status: 'failed', error_log: message });
