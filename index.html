@@ -1624,15 +1624,18 @@
         ? result.data
         : result;
       const candidates = collectAIContentCandidates(envelope);
+      const parseErrors = [];
       for (const candidate of candidates) {
         try {
           const parsed = parseAIContentCandidate(candidate);
           if (parsed && typeof parsed === 'object') return parsed;
         } catch (error) {
-          // Try next candidate format
+          parseErrors.push(String(error?.message || error || 'parse_failed'));
         }
       }
-      throw new Error('empty ai content');
+      const fallback = parseAIFallbackFromRaw(envelope);
+      if (fallback) return fallback;
+      throw new Error(`empty ai content | ${parseErrors.slice(0, 3).join(' | ')}`);
     }
 
     function collectAIContentCandidates(envelope) {
@@ -1676,7 +1679,14 @@
         }
         // OpenAI content array: [{type,text}]
         const textContent = candidate
-          .map(part => typeof part === 'string' ? part : (part?.text || part?.content || ''))
+          .map(part => {
+            if (typeof part === 'string') return part;
+            if (typeof part?.text === 'string') return part.text;
+            if (typeof part?.text?.value === 'string') return part.text.value;
+            if (typeof part?.content === 'string') return part.content;
+            if (typeof part?.output_text === 'string') return part.output_text;
+            return '';
+          })
           .join('\n')
           .trim();
         if (textContent) return parseJSONStringLoose(textContent);
@@ -1684,6 +1694,12 @@
       }
 
       if (typeof candidate === 'object') {
+        if (candidate.tags) return candidate;
+        if (candidate.choices?.[0]?.message?.content) return parseAIContentCandidate(candidate.choices[0].message.content);
+        if (candidate.output_text) return parseJSONStringLoose(String(candidate.output_text));
+        if (candidate.output) return parseAIContentCandidate(candidate.output);
+        if (candidate.candidates) return parseAIContentCandidate(candidate.candidates);
+        if (candidate.data) return parseAIContentCandidate(candidate.data);
         if (candidate.text) return parseJSONStringLoose(String(candidate.text));
         if (candidate.content) return parseAIContentCandidate(candidate.content);
         if (candidate.function?.arguments) return parseJSONStringLoose(String(candidate.function.arguments));
@@ -1692,6 +1708,37 @@
       }
 
       return parseJSONStringLoose(String(candidate));
+    }
+
+    function parseAIFallbackFromRaw(envelope) {
+      const raw = safeStringify(envelope);
+      if (!raw || raw === 'null' || raw === '{}') return null;
+      const objects = extractAllJSONObjects(raw);
+      for (const objText of objects) {
+        try {
+          const parsed = parseJSONStringLoose(objText);
+          if (parsed && typeof parsed === 'object' && (parsed.tags || parsed.has_human !== undefined)) {
+            return parsed;
+          }
+        } catch (error) {
+          // continue
+        }
+      }
+      return null;
+    }
+
+    function extractAllJSONObjects(text) {
+      const source = String(text || '');
+      const list = [];
+      for (let i = 0; i < source.length; i++) {
+        if (source[i] !== '{') continue;
+        const chunk = extractJSONObject(source.slice(i));
+        if (chunk && chunk.length > 2) {
+          list.push(chunk);
+          i += Math.max(0, chunk.length - 1);
+        }
+      }
+      return list;
     }
 
     function parseJSONStringLoose(text) {
