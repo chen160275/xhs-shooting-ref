@@ -1350,7 +1350,7 @@
         showToast(`${t('quotaRemainingLabel')}: ${data?.remaining ?? '-'}`);
       } catch (error) {
         logCaughtError('resetTrialQuota', error);
-        window.alert(String(error?.message || 'reset quota failed'));
+        window.alert(`更新失败: ${String(error?.message || 'reset quota failed')}`);
       }
     }
 
