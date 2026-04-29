@@ -2336,7 +2336,8 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
           lens: normalized.lens,
           ai_model: currentModel,
           status: 'success',
-          error_log: ''
+          error_log: '',
+          created_at: new Date().toISOString()
         };
         pushDebugLog('retry', {
           id: item.id,
@@ -2548,11 +2549,11 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
     function buildUpdateAttempts(item, updates) {
       const mergedTags = updates.tags || item.tags;
       return [
-        { tags: mergedTags, quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log, ai_model: currentModel },
-        { tags: JSON.stringify(mergedTags), quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log, ai_model: currentModel },
-        { tags: mergedTags, quote: updates.quote, status: updates.status, error_log: updates.error_log, ai_model: currentModel },
-        { tags: JSON.stringify(mergedTags), quote: updates.quote, status: updates.status, error_log: updates.error_log, ai_model: currentModel },
-        { status: updates.status, error_log: updates.error_log, ai_model: currentModel }
+        { tags: mergedTags, quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log, ai_model: currentModel, created_at: updates.created_at },
+        { tags: JSON.stringify(mergedTags), quote: updates.quote, lens: updates.lens, status: updates.status, error_log: updates.error_log, ai_model: currentModel, created_at: updates.created_at },
+        { tags: mergedTags, quote: updates.quote, status: updates.status, error_log: updates.error_log, ai_model: currentModel, created_at: updates.created_at },
+        { tags: JSON.stringify(mergedTags), quote: updates.quote, status: updates.status, error_log: updates.error_log, ai_model: currentModel, created_at: updates.created_at },
+        { status: updates.status, error_log: updates.error_log, ai_model: currentModel, created_at: updates.created_at }
       ].map(payload => Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)));
     }
 
