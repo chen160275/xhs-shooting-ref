@@ -741,7 +741,6 @@
 
         const contentHash = await computeFileHash(file);
         let resolvedFileName = `${contentHash}.jpg`;
-        let forceAsNewUpload = false;
         while (true) {
           try {
             await ensureUniqueFileName(resolvedFileName);
@@ -765,17 +764,14 @@
                 removeQueueItem(tempId);
                 return;
               }
-              forceAsNewUpload = true;
-              resolvedFileName = `${contentHash}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
-              continue;
+              showToast(currentLang === 'zh' ? '已取消本次上传' : 'Upload cancelled');
+              removeQueueItem(tempId);
+              return;
             }
             throw error;
           }
         }
         fileName = resolvedFileName;
-        if (forceAsNewUpload) {
-          pushDebugLog('duplicate_force_upload', { fileName, model: currentModel });
-        }
         pendingFileNames.add(fileName);
         const uploadBlob = dataUrlToBlob(compressedBase64);
         const uploadResult = await uploadToSupabase(fileName, uploadBlob, (progress) => {
