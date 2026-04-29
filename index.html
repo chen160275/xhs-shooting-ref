@@ -165,6 +165,7 @@
               <input id="successSelectAll" type="checkbox" class="h-3.5 w-3.5 accent-black">
               <span id="selectAllText">全选</span>
             </label>
+            <button id="roleFilterBtn" class="rounded-full border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-700">只看次用户</button>
           </div>
           <div id="successCount" class="text-[10px] font-bold text-gray-400">0</div>
         </div>
@@ -266,6 +267,7 @@
 
     const CACHE_KEY = 'pro_creation_station_cache_v1';
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
+    const ROLE_HINT_KEY = 'pro_creation_station_role_hint_v1';
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const DEBUG_KEY = 'pro_creation_station_debug_v1';
@@ -307,6 +309,12 @@
         selectAll: '全选',
         batchDelete: '批量删除',
         reasonPrefix: '原因',
+        rolePrefix: '用户',
+        roleMaster: '主用户',
+        roleTrial: '次用户',
+        roleUnknown: '未知',
+        roleFilterTrial: '只看次用户',
+        roleFilterAll: '显示全部',
         statusPrefix: '状态',
         statusSuccess: '成功',
         statusFailed: '失败',
@@ -369,6 +377,12 @@
         selectAll: 'Select all',
         batchDelete: 'Batch Delete',
         reasonPrefix: 'Reason',
+        rolePrefix: 'User',
+        roleMaster: 'Master',
+        roleTrial: 'Trial',
+        roleUnknown: 'Unknown',
+        roleFilterTrial: 'Trial only',
+        roleFilterAll: 'Show all',
         statusPrefix: 'Status',
         statusSuccess: 'Success',
         statusFailed: 'Failed',
@@ -434,6 +448,7 @@
     let currentLang = localStorage.getItem(LANG_KEY) || 'zh';
     let currentModel = localStorage.getItem(MODEL_KEY) || MODELS[0];
     let currentAccessRole = 'none';
+    let successRoleFilter = 'all';
     let pendingAdminAfterAuth = false;
     let debugEnabled = localStorage.getItem(DEBUG_KEY) === '1';
     if (!MODELS.includes(currentModel)) currentModel = MODELS[0];
@@ -460,6 +475,7 @@
     const successList = document.getElementById('successList');
     const successSelectAll = document.getElementById('successSelectAll');
     const selectAllText = document.getElementById('selectAllText');
+    const roleFilterBtn = document.getElementById('roleFilterBtn');
     const failedCount = document.getElementById('failedCount');
     const successCount = document.getElementById('successCount');
     const queueStrip = document.getElementById('queueStrip');
@@ -494,6 +510,7 @@
     let activeRetryTaskCount = 0;
     const pendingFileNames = new Set();
     const reprocessingIds = new Set();
+    let roleHints = readRoleHints();
     const queueTaskMeta = new Map();
     const activeUploadTaskIds = new Set();
     const activeRetryTaskIds = new Set();
@@ -518,6 +535,7 @@
       if (e.key === 'Enter') handleAuthSubmit();
     });
     successSelectAll.addEventListener('change', toggleSelectAllSuccess);
+    roleFilterBtn.addEventListener('click', toggleSuccessRoleFilter);
     langToggle.addEventListener('click', toggleLanguage);
     upInput.addEventListener('change', onUploadChange);
     gridToggle.addEventListener('click', toggleGrid);
@@ -599,6 +617,8 @@
       authSubmitBtn.textContent = t('authSubmit');
       modelSelect.setAttribute('aria-label', t('modelLabel'));
       queueClearBtn.textContent = t('queueClear');
+      roleFilterBtn.textContent = successRoleFilter === 'trial' ? t('roleFilterAll') : t('roleFilterTrial');
+      roleFilterBtn.className = `rounded-full border px-2 py-1 text-[10px] font-bold ${successRoleFilter === 'trial' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700'}`;
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
       debugToggleBtn.textContent = `${currentLang === 'zh' ? '调试' : 'Debug'}: ${debugEnabled ? (currentLang === 'zh' ? '开' : 'On') : (currentLang === 'zh' ? '关' : 'Off')}`;
@@ -823,7 +843,8 @@
         };
 
         const data = await insertInspirationRecord(payload);
-        const item = normalizeItem(data, previewUrl);
+        const item = normalizeItem({ ...data, owner_role: currentAccessRole }, previewUrl);
+        rememberAssetRole(item, currentAccessRole);
         if (item.status === 'success') {
           items.unshift(item);
           removeFailedAsset(tempId, fileName, publicUrl);
@@ -931,6 +952,73 @@
       }
     }
 
+    function readRoleHints() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(ROLE_HINT_KEY) || '{}');
+        return raw && typeof raw === 'object' ? raw : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function persistRoleHints() {
+      localStorage.setItem(ROLE_HINT_KEY, JSON.stringify(roleHints));
+    }
+
+    function normalizeRoleValue(value) {
+      return value === 'master' || value === 'trial' ? value : '';
+    }
+
+    function resolveAssetRole(row) {
+      const role = normalizeRoleValue(row?.owner_role || row?.access_role || row?.user_role || row?.role);
+      if (role) return role;
+      const idRole = normalizeRoleValue(roleHints[`id:${row?.id}`]);
+      if (idRole) return idRole;
+      const pathRole = normalizeRoleValue(roleHints[`path:${row?.storage_path || ''}`]);
+      if (pathRole) return pathRole;
+      return '';
+    }
+
+    function rememberAssetRole(item, role) {
+      const normalizedRole = normalizeRoleValue(role);
+      if (!normalizedRole || !item) return;
+      if (item.id !== undefined && item.id !== null) roleHints[`id:${item.id}`] = normalizedRole;
+      if (item.storage_path) roleHints[`path:${item.storage_path}`] = normalizedRole;
+      persistRoleHints();
+    }
+
+    function forgetAssetRole(item) {
+      if (!item) return;
+      let changed = false;
+      if (item.id !== undefined && item.id !== null) {
+        const idKey = `id:${item.id}`;
+        if (roleHints[idKey]) {
+          delete roleHints[idKey];
+          changed = true;
+        }
+      }
+      if (item.storage_path) {
+        const pathKey = `path:${item.storage_path}`;
+        if (roleHints[pathKey]) {
+          delete roleHints[pathKey];
+          changed = true;
+        }
+      }
+      if (changed) persistRoleHints();
+    }
+
+    function getRoleText(role) {
+      if (role === 'master') return t('roleMaster');
+      if (role === 'trial') return t('roleTrial');
+      return t('roleUnknown');
+    }
+
+    function toggleSuccessRoleFilter() {
+      successRoleFilter = successRoleFilter === 'trial' ? 'all' : 'trial';
+      renderStaticText();
+      renderAdminLists();
+    }
+
     function normalizeItem(row, fallbackPreview) {
       return {
         id: row.id,
@@ -942,7 +1030,8 @@
         ai_model: row.ai_model || currentModel,
         status: row.status || 'success',
         error_log: row.error_log || '',
-        created_at: row.created_at || new Date().toISOString()
+        created_at: row.created_at || new Date().toISOString(),
+        owner_role: resolveAssetRole(row)
       };
     }
 
@@ -1753,7 +1842,11 @@
 
     function renderAdminLists() {
       const failed = failedAssets.filter(item => !reprocessingIds.has(String(item.id))).slice().sort(sortByDateDesc);
-      const success = items.filter(item => !reprocessingIds.has(String(item.id))).slice().sort(sortByDateDesc);
+      const success = items
+        .filter(item => !reprocessingIds.has(String(item.id)))
+        .filter(item => successRoleFilter === 'trial' ? item.owner_role === 'trial' : true)
+        .slice()
+        .sort(sortByDateDesc);
 
       failedCount.textContent = String(failed.length);
       successCount.textContent = String(success.length);
@@ -1775,6 +1868,12 @@
       const canRetry = isRetryableAsset(item);
       const checked = selectedAssetIds.has(String(item.id));
       const modelName = getModelDisplayName(item.ai_model || currentModel);
+      const roleText = getRoleText(item.owner_role);
+      const roleClass = item.owner_role === 'master'
+        ? 'bg-black text-white'
+        : item.owner_role === 'trial'
+          ? 'bg-[#FF2442] text-white'
+          : 'bg-gray-200 text-gray-600';
       return `
         <div class="flex gap-3 rounded-2xl bg-paper p-3">
           <div class="relative">
@@ -1783,7 +1882,10 @@
           </div>
           <div class="min-w-0 flex-1">
             <div class="text-[11px] font-bold text-gray-500">${t('statusPrefix')}: ${statusText}</div>
-            <div class="mt-1 text-[10px] font-semibold text-gray-400">由 ${escapeHtml(modelName)} 识别</div>
+            <div class="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-gray-400">
+              <span>由 ${escapeHtml(modelName)} 识别</span>
+              ${item.status === 'success' ? `<span class="rounded-full px-2 py-0.5 text-[9px] font-bold ${roleClass}">${t('rolePrefix')}: ${escapeHtml(roleText)}</span>` : ''}
+            </div>
             ${item.status === 'success' ? `<div class="mt-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>` : ''}
             <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
             <div class="mt-3 flex gap-2">
@@ -1947,6 +2049,7 @@
       }
       removeFailedAsset(item.id, item.storage_path, item.image_url);
       items = items.filter(entry => String(entry.id) !== String(item.id));
+      forgetAssetRole(item);
       persistCache();
       renderGallery();
       renderAdminLists();
@@ -2013,6 +2116,7 @@
         !selectedIdSet.has(String(item.id)) &&
         !(item.storage_path && selectedPathSet.has(item.storage_path))
       );
+      selectedItems.forEach(item => forgetAssetRole(item));
       persistCache();
       persistFailedAssets();
       selectedAssetIds.clear();
