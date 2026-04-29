@@ -122,6 +122,7 @@
             <div id="adminSubtitle" class="mt-1 text-[11px] text-gray-400">Manage synced cloud assets and retry failed AI jobs</div>
           </div>
           <div class="flex items-center gap-2">
+            <button id="debugToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">调试: 关</button>
             <button id="queueToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">暂停</button>
             <select id="modelSelect" class="max-w-[180px] rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-bold text-gray-600">
             </select>
@@ -168,6 +169,11 @@
           <div id="successCount" class="text-[10px] font-bold text-gray-400">0</div>
         </div>
         <div id="successList" class="space-y-3"></div>
+      </section>
+
+      <section id="debugPanel" class="mb-4 hidden rounded-[22px] bg-white p-3 shadow-card">
+        <div class="mb-2 text-xs font-black tracking-wide text-gray-700">DEBUG LOG</div>
+        <div id="debugLog" class="max-h-44 overflow-y-auto space-y-1 text-[11px] text-gray-500"></div>
       </section>
 
       <div id="batchBar" class="fixed bottom-4 left-1/2 z-50 hidden w-[calc(100%-24px)] max-w-md -translate-x-1/2 rounded-2xl bg-black px-4 py-3 text-white shadow-2xl">
@@ -231,6 +237,7 @@
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
+    const DEBUG_KEY = 'pro_creation_station_debug_v1';
     const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning'];
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
     const DIMS = ['视角', '姿态', '构图', '环境', '素材'];
@@ -357,6 +364,7 @@
     let showGrid = false;
     let currentLang = localStorage.getItem(LANG_KEY) || 'zh';
     let currentModel = localStorage.getItem(MODEL_KEY) || MODELS[0];
+    let debugEnabled = localStorage.getItem(DEBUG_KEY) === '1';
     if (!MODELS.includes(currentModel)) currentModel = MODELS[0];
     let currentPage = new URLSearchParams(window.location.search).get('page') === 'admin' ? 'admin' : 'home';
 
@@ -369,6 +377,7 @@
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     const adminToggle = document.getElementById('adminToggle');
     const modelSelect = document.getElementById('modelSelect');
+    const debugToggleBtn = document.getElementById('debugToggleBtn');
     const queueToggleBtn = document.getElementById('queueToggleBtn');
     const langToggle = document.getElementById('langToggle');
     const gridToggle = document.getElementById('gridToggle');
@@ -383,6 +392,8 @@
     const successCount = document.getElementById('successCount');
     const queueStrip = document.getElementById('queueStrip');
     const queueHint = document.getElementById('queueHint');
+    const debugPanel = document.getElementById('debugPanel');
+    const debugLog = document.getElementById('debugLog');
     const batchBar = document.getElementById('batchBar');
     const batchCount = document.getElementById('batchCount');
     const batchRetryBtn = document.getElementById('batchRetryBtn');
@@ -402,6 +413,7 @@
       currentModel = e.target.value;
       localStorage.setItem(MODEL_KEY, currentModel);
     });
+    debugToggleBtn.addEventListener('click', toggleDebugPanel);
     queueToggleBtn.addEventListener('click', toggleQueuePause);
     queueStrip.addEventListener('scroll', syncQueueHint);
     batchRetryBtn.addEventListener('click', batchRetrySelected);
@@ -470,6 +482,7 @@
       modelSelect.setAttribute('aria-label', t('modelLabel'));
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
+      debugToggleBtn.textContent = `${currentLang === 'zh' ? '调试' : 'Debug'}: ${debugEnabled ? (currentLang === 'zh' ? '开' : 'On') : (currentLang === 'zh' ? '关' : 'Off')}`;
       queueToggleBtn.textContent = isQueuePaused ? t('queueResume') : t('queuePause');
       const modalQuoteEl = document.getElementById('modalQuote');
       if (!modalQuoteEl.textContent.replace(/[“”"]/g, '').trim() || modalQuoteEl.textContent.includes('等待内容') || modalQuoteEl.textContent.includes('Waiting for content')) {
@@ -560,6 +573,14 @@
         const aiData = await requestAI(compressedBase64);
         const normalized = normalizeAI(aiData);
         const validationError = validateStrictSingleChoice(aiData);
+        pushDebugLog('upload', {
+          fileName,
+          model: currentModel,
+          hasHuman: parseHumanFlag(aiData),
+          rawTags: aiData?.tags || {},
+          normalizedTags: normalized.tags,
+          validationError: validationError || null
+        });
         const payload = {
           image_url: publicUrl,
           storage_path: fileName,
@@ -1246,7 +1267,15 @@
       gridToggle.classList.toggle('hidden', currentPage === 'admin');
       gridToggle.style.display = currentPage === 'admin' ? 'none' : '';
       clearFiltersBtn.classList.toggle('hidden', currentPage === 'admin');
+      debugPanel.classList.toggle('hidden', !(currentPage === 'admin' && debugEnabled));
       syncBatchBar();
+    }
+
+    function toggleDebugPanel() {
+      debugEnabled = !debugEnabled;
+      localStorage.setItem(DEBUG_KEY, debugEnabled ? '1' : '0');
+      renderStaticText();
+      syncPageUI();
     }
 
     function resetAllFilters() {
@@ -1367,6 +1396,13 @@
           status: 'success',
           error_log: ''
         };
+        pushDebugLog('retry', {
+          id: item.id,
+          model: currentModel,
+          hasHuman: parseHumanFlag(aiData),
+          rawTags: aiData?.tags || {},
+          normalizedTags: normalized.tags
+        });
         await updateRemoteRecord(item, updates);
         removeFailedAsset(item.id, item.storage_path, item.image_url);
         const updated = normalizeItem({ ...item, ...updates });
@@ -1652,6 +1688,24 @@
       toastTimer = setTimeout(() => {
         toast.classList.add('hidden');
       }, 2200);
+    }
+
+    function pushDebugLog(type, payload) {
+      if (!debugEnabled) return;
+      const row = document.createElement('div');
+      row.className = 'rounded bg-gray-50 px-2 py-1';
+      const stamp = new Date().toLocaleTimeString();
+      row.textContent = `[${stamp}] ${type}: ${safeStringify(payload)}`;
+      debugLog.prepend(row);
+      while (debugLog.children.length > 80) debugLog.lastChild.remove();
+    }
+
+    function safeStringify(value) {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        return '[unserializable]';
+      }
     }
 
     function syncQueueHint() {
