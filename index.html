@@ -194,6 +194,7 @@
       </section>
 
       <div class="mb-24 flex justify-end">
+        <button id="switchUserBtn" class="mr-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">切换用户</button>
         <button id="debugToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">调试: 关</button>
       </div>
 
@@ -243,6 +244,16 @@
   </div>
 
   <div id="toast" class="pointer-events-none fixed left-1/2 top-4 z-[120] hidden -translate-x-1/2 rounded-full bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl"></div>
+
+  <div id="authModal" class="fixed inset-0 z-[130] hidden bg-black/45 px-5">
+    <div class="mx-auto mt-28 max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+      <div id="authTitle" class="text-base font-black text-gray-900">请输入访问密码</div>
+      <div id="authSubtitle" class="mt-1 text-xs text-gray-500">主用户或次用户密码均可登录</div>
+      <input id="authPwdInput" type="password" class="mt-4 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm font-semibold text-gray-700" placeholder="输入密码">
+      <div id="authError" class="mt-2 min-h-[16px] text-[11px] font-semibold text-redx"></div>
+      <button id="authSubmitBtn" class="mt-2 h-10 w-full rounded-xl bg-black text-sm font-black text-white">登录</button>
+    </div>
+  </div>
 
   <script>
     const CONFIG = {
@@ -316,7 +327,13 @@
         quotaResetBtn: '更新',
         quotaInputPlaceholder: '输入新的额度值',
         trialQuotaTitle: '次用户剩余额度',
-        quotaResetPrompt: '请输入重置后的额度（整数）'
+        quotaResetPrompt: '请输入重置后的额度（整数）',
+        switchUser: '切换用户',
+        authTitle: '请输入访问密码',
+        authSubtitle: '主用户或次用户密码均可登录',
+        authPlaceholder: '输入密码',
+        authSubmit: '登录',
+        authInvalid: '密码无效，请重试'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -369,7 +386,13 @@
         quotaResetBtn: 'Update',
         quotaInputPlaceholder: 'Enter new quota value',
         trialQuotaTitle: 'Trial Remaining Quota',
-        quotaResetPrompt: 'Enter new quota (integer)'
+        quotaResetPrompt: 'Enter new quota (integer)',
+        switchUser: 'Switch User',
+        authTitle: 'Enter Access Password',
+        authSubtitle: 'Master or trial password is accepted',
+        authPlaceholder: 'Password',
+        authSubmit: 'Sign In',
+        authInvalid: 'Invalid password, please try again'
       }
     };
     const DICTIONARY = {
@@ -444,6 +467,11 @@
     const trialQuotaRemainingValue = document.getElementById('trialQuotaRemainingValue');
     const quotaInput = document.getElementById('quotaInput');
     const quotaResetBtn = document.getElementById('quotaResetBtn');
+    const switchUserBtn = document.getElementById('switchUserBtn');
+    const authModal = document.getElementById('authModal');
+    const authPwdInput = document.getElementById('authPwdInput');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    const authError = document.getElementById('authError');
     const toast = document.getElementById('toast');
     let toastTimer = null;
     const debugEntries = [];
@@ -471,6 +499,11 @@
     batchRetryBtn.addEventListener('click', batchRetrySelected);
     batchDeleteBtn.addEventListener('click', batchDeleteSelected);
     quotaResetBtn.addEventListener('click', resetTrialQuota);
+    switchUserBtn.addEventListener('click', switchUser);
+    authSubmitBtn.addEventListener('click', handleAuthSubmit);
+    authPwdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleAuthSubmit();
+    });
     successSelectAll.addEventListener('change', toggleSelectAllSuccess);
     langToggle.addEventListener('click', toggleLanguage);
     upInput.addEventListener('change', onUploadChange);
@@ -492,6 +525,7 @@
     init();
 
     async function init() {
+      await ensureAuthSession();
       refreshAccessRole();
       renderStaticText();
       renderFromCache();
@@ -540,7 +574,12 @@
       document.getElementById('quotaRemainingLabel').textContent = t('quotaRemainingLabel');
       document.getElementById('trialQuotaRemainingLabel').textContent = t('quotaRemainingLabel');
       quotaResetBtn.textContent = t('quotaResetBtn');
+      switchUserBtn.textContent = t('switchUser');
       quotaInput.placeholder = t('quotaInputPlaceholder');
+      document.getElementById('authTitle').textContent = t('authTitle');
+      document.getElementById('authSubtitle').textContent = t('authSubtitle');
+      authPwdInput.placeholder = t('authPlaceholder');
+      authSubmitBtn.textContent = t('authSubmit');
       modelSelect.setAttribute('aria-label', t('modelLabel'));
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
@@ -1171,6 +1210,86 @@
         },
         body: JSON.stringify(payload)
       });
+    }
+
+    async function verifyAccessPassword(pwd) {
+      const response = await callAiProxy({ action: 'quota_status' }, pwd);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      const role = String(data?.role || '');
+      if (role !== 'master' && role !== 'trial') throw new Error('invalid role');
+      return role;
+    }
+
+    function openAuthModal(message = '') {
+      authError.textContent = message;
+      authPwdInput.value = '';
+      authModal.classList.remove('hidden');
+      setTimeout(() => authPwdInput.focus(), 0);
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeAuthModal() {
+      authModal.classList.add('hidden');
+      authError.textContent = '';
+      document.body.style.overflow = '';
+    }
+
+    function persistAccessByRole(role, pwd) {
+      localStorage.removeItem('access_pwd');
+      sessionStorage.removeItem('access_pwd');
+      if (role === 'master') localStorage.setItem('access_pwd', pwd);
+      else sessionStorage.setItem('access_pwd', pwd);
+      refreshAccessRole();
+    }
+
+    async function ensureAuthSession() {
+      const pwd = getAccessPwd();
+      if (!pwd) {
+        openAuthModal();
+        return false;
+      }
+      try {
+        const role = await verifyAccessPassword(pwd);
+        persistAccessByRole(role, pwd);
+        closeAuthModal();
+        return true;
+      } catch (error) {
+        localStorage.removeItem('access_pwd');
+        sessionStorage.removeItem('access_pwd');
+        refreshAccessRole();
+        openAuthModal(t('authInvalid'));
+        return false;
+      }
+    }
+
+    async function handleAuthSubmit() {
+      const pwd = authPwdInput.value.trim();
+      if (!pwd) {
+        authError.textContent = t('authInvalid');
+        return;
+      }
+      authSubmitBtn.disabled = true;
+      try {
+        const role = await verifyAccessPassword(pwd);
+        persistAccessByRole(role, pwd);
+        closeAuthModal();
+        await refreshQuotaPanel();
+        syncPageUI();
+        showToast(role === 'master' ? 'MASTER' : 'TRIAL');
+      } catch (error) {
+        authError.textContent = t('authInvalid');
+      } finally {
+        authSubmitBtn.disabled = false;
+      }
+    }
+
+    function switchUser() {
+      localStorage.removeItem('access_pwd');
+      sessionStorage.removeItem('access_pwd');
+      refreshAccessRole();
+      syncPageUI();
+      openAuthModal();
     }
 
     function refreshAccessRole() {
