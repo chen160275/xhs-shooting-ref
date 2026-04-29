@@ -161,7 +161,7 @@
         <div class="mb-3 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <div id="adminSuccessTitle" class="text-xs font-black uppercase tracking-[0.18em] text-black">Success</div>
-            <label class="flex items-center gap-1 text-[11px] text-gray-500">
+            <label id="successSelectAllWrap" class="flex items-center gap-1 text-[11px] text-gray-500">
               <input id="successSelectAll" type="checkbox" class="h-3.5 w-3.5 accent-black">
               <span id="selectAllText">全选</span>
             </label>
@@ -490,6 +490,7 @@
     const failedList = document.getElementById('failedList');
     const successList = document.getElementById('successList');
     const successSelectAll = document.getElementById('successSelectAll');
+    const successSelectAllWrap = document.getElementById('successSelectAllWrap');
     const selectAllText = document.getElementById('selectAllText');
     const roleFilterBtn = document.getElementById('roleFilterBtn');
     const failedCount = document.getElementById('failedCount');
@@ -2152,6 +2153,12 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
       debugPanel.classList.toggle('hidden', !(currentPage === 'admin' && debugEnabled));
       quotaPanel.classList.toggle('hidden', !(currentPage === 'admin' && currentAccessRole === 'master'));
       trialQuotaPanel.classList.toggle('hidden', !(currentPage === 'admin' && currentAccessRole === 'trial'));
+      successSelectAllWrap.classList.toggle('hidden', currentAccessRole === 'trial');
+      if (currentAccessRole === 'trial') {
+        selectedAssetIds.clear();
+        successSelectAll.checked = false;
+        successSelectAll.indeterminate = false;
+      }
       if (currentPage === 'admin' && currentAccessRole === 'master') {
         refreshQuotaPanel();
       }
@@ -2623,7 +2630,8 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
 
     function syncBatchBar() {
       const count = selectedAssetIds.size;
-      batchBar.classList.toggle('hidden', !(currentPage === 'admin' && count > 0));
+      const allowBatchActions = currentAccessRole !== 'trial';
+      batchBar.classList.toggle('hidden', !(currentPage === 'admin' && allowBatchActions && count > 0));
       batchCount.textContent = currentLang === 'zh'
         ? `${t('batchSelected')} ${count} ${t('batchSelectedSuffix')}`
         : `${count} ${t('batchSelected')}`;
