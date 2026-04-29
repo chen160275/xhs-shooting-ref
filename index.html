@@ -268,6 +268,10 @@
     const CACHE_KEY = 'pro_creation_station_cache_v1';
     const FAIL_LOG_KEY = 'pro_creation_station_failed_assets_v1';
     const ROLE_HINT_KEY = 'pro_creation_station_role_hint_v1';
+    const APP_VERSION = '17.1.1';
+    const VERSION_CHECK_URL = '/version.json';
+    const VERSION_CHECK_INTERVAL_MS = 45000;
+    const VERSION_RELOAD_GUARD_KEY = 'pro_creation_station_version_reload_guard_v1';
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const DEBUG_KEY = 'pro_creation_station_debug_v1';
@@ -571,6 +575,47 @@
       await syncRemote();
       await refreshQuotaPanel();
       syncPageUI();
+      startVersionWatcher();
+    }
+
+    function startVersionWatcher() {
+      checkVersionUpdate();
+      setInterval(checkVersionUpdate, VERSION_CHECK_INTERVAL_MS);
+    }
+
+    async function checkVersionUpdate() {
+      try {
+        const url = `${VERSION_CHECK_URL}?_t=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        const remoteVersion = String(data?.version || '').trim();
+        if (!remoteVersion || remoteVersion === APP_VERSION) {
+          sessionStorage.removeItem(VERSION_RELOAD_GUARD_KEY);
+          return;
+        }
+
+        const now = Date.now();
+        let guard = { version: '', at: 0, count: 0 };
+        try {
+          const raw = JSON.parse(sessionStorage.getItem(VERSION_RELOAD_GUARD_KEY) || '{}');
+          if (raw && typeof raw === 'object') guard = { ...guard, ...raw };
+        } catch (error) {}
+
+        // Guard against infinite reload loops caused by stale CDN edge nodes.
+        if (guard.version === remoteVersion && now - Number(guard.at || 0) < 120000 && Number(guard.count || 0) >= 2) {
+          return;
+        }
+
+        sessionStorage.setItem(VERSION_RELOAD_GUARD_KEY, JSON.stringify({
+          version: remoteVersion,
+          at: now,
+          count: guard.version === remoteVersion ? Number(guard.count || 0) + 1 : 1
+        }));
+        window.location.reload();
+      } catch (error) {
+        logCaughtError('checkVersionUpdate', error);
+      }
     }
 
     function t(key) {
