@@ -1983,29 +1983,25 @@ Output only the raw JSON object, no preamble, no Markdown formatting, no code bl
     function validateStrictSingleChoice(aiData) {
       const rawTags = aiData && aiData.tags ? aiData.tags : {};
       const hasHuman = parseHumanFlag(aiData);
+      const normalizedTags = normalizeTags({ ...rawTags, __hasHuman: hasHuman });
       const mustSingle = hasHuman
         ? ['视角', '姿态', '构图', '环境', '素材']
         : ['环境', '素材'];
 
       for (const dim of mustSingle) {
-        const value = rawTags[dim];
-        const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
-        const normalized = list.map(v => String(v).trim()).filter(Boolean);
-        if (normalized.length !== 1) return `维度${dim}不是单选结果`;
-        const allowed = dim === '素材' && !hasHuman ? ['商品', '店面', '景观'] : DICTIONARY[dim];
-        if (!allowed.includes(normalized[0])) return `维度${dim}标签不在预设词典`;
+        const value = normalizedTags[dim];
+        const list = Array.isArray(value) ? value : [];
+        if (list.length !== 1 || !String(list[0] || '').trim()) return `维度${dim}不是单选结果`;
       }
 
       if (hasHuman) {
-        const m = Array.isArray(rawTags['素材']) ? rawTags['素材'][0] : rawTags['素材'];
+        const m = Array.isArray(normalizedTags['素材']) ? normalizedTags['素材'][0] : normalizedTags['素材'];
         if (m && String(m).trim() !== '有人(忽略此项)') return '有人场景素材维度必须为有人(忽略此项)';
       } else {
         const clearDims = ['视角', '姿态', '构图'];
         for (const dim of clearDims) {
-          const value = rawTags[dim];
-          const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
-          const normalized = list.map(v => String(v).trim()).filter(Boolean);
-          const validNull = normalized.length === 0 || (normalized.length === 1 && ['无', 'null', 'NULL'].includes(normalized[0]));
+          const value = normalizedTags[dim];
+          const validNull = value === null || (Array.isArray(value) && value.length === 0);
           if (!validNull) {
             return `无人场景维度${dim}必须为无`;
           }
