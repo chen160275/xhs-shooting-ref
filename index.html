@@ -772,7 +772,7 @@
     function normalizeTags(tags) {
       const result = {};
       const input = tags || {};
-      const hasHuman = Boolean(input.__hasHuman);
+      const hasHuman = inferHasHumanForTags(input);
 
       if (hasHuman) {
         result['视角'] = [pickAllowedTag(input['视角'], '视角', DEFAULT_TAGS['视角'])];
@@ -785,7 +785,7 @@
         result['姿态'] = null;
         result['构图'] = null;
         result['环境'] = [pickAllowedTag(input['环境'], '环境', DEFAULT_TAGS['环境'])];
-        result['素材'] = [pickAllowedTag(input['素材'], '素材', '纯景', ['商品', '店面', '纯景'])];
+        result['素材'] = [pickAllowedTag(input['素材'], '素材', '景观', ['商品', '店面', '景观'])];
       }
       return result;
     }
@@ -1114,7 +1114,7 @@
         const list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : []);
         const normalized = list.map(v => String(v).trim()).filter(Boolean);
         if (normalized.length !== 1) return `维度${dim}不是单选结果`;
-        const allowed = dim === '素材' && !hasHuman ? ['商品', '店面', '纯景'] : DICTIONARY[dim];
+        const allowed = dim === '素材' && !hasHuman ? ['商品', '店面', '景观'] : DICTIONARY[dim];
         if (!allowed.includes(normalized[0])) return `维度${dim}标签不在预设词典`;
       }
 
@@ -1787,6 +1787,20 @@
       if (explicit === false && nonHumanSignals) return false;
       if (hasHumanSignals) return true;
       if (nonHumanSignals) return false;
+      return true;
+    }
+
+    function inferHasHumanForTags(input) {
+      if (typeof input.__hasHuman === 'boolean') return input.__hasHuman;
+      const material = firstTag(input['素材']);
+      if (material === '有人(忽略此项)') return true;
+      if (['商品', '店面', '景观'].includes(material)) return false;
+
+      const humanDims = ['视角', '姿态', '构图'];
+      for (const dim of humanDims) {
+        const value = firstTag(input[dim] || (dim === '构图' ? input['景别'] : null));
+        if (value && value !== '无' && value !== 'null' && value !== 'NULL') return true;
+      }
       return true;
     }
 
