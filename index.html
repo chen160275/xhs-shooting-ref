@@ -169,7 +169,7 @@
           </div>
           <div id="successCount" class="text-[10px] font-bold text-gray-400">0</div>
         </div>
-        <div id="successList" class="space-y-3"></div>
+        <div id="successList" class="max-h-[660px] space-y-3 overflow-y-auto pr-1"></div>
       </section>
 
       <section id="debugPanel" class="mb-4 hidden rounded-[22px] bg-white p-3 shadow-card">
@@ -300,6 +300,8 @@
         delete: '删除',
         retryConfirm: '确认重新调用 AI 识别吗？这将再次消耗额度。',
         deleteConfirm: '确认删除该素材吗？会同时删除云端文件与数据库记录。',
+        deleteDeniedTrial: '次用户只能删除次用户上传识别的图片。',
+        batchDeleteDeniedPartial: '部分选中素材无删除权限，已自动跳过。',
         retryUnavailable: '该素材缺少可访问云端图片，暂时无法重试 AI。',
         noFailed: '当前没有失败或待处理素材',
         noSuccess: '当前没有成功素材',
@@ -368,6 +370,8 @@
         delete: 'Delete',
         retryConfirm: 'Retry AI parsing for this asset? This will consume quota again.',
         deleteConfirm: 'Delete this asset? This removes both cloud file and database row.',
+        deleteDeniedTrial: 'Trial users can only delete images recognized by trial users.',
+        batchDeleteDeniedPartial: 'Some selected items are not deletable for trial user and were skipped.',
         retryUnavailable: 'This asset has no accessible cloud image, so AI retry is unavailable.',
         noFailed: 'No failed or pending assets',
         noSuccess: 'No successful assets',
@@ -1017,6 +1021,17 @@
       successRoleFilter = successRoleFilter === 'trial' ? 'all' : 'trial';
       renderStaticText();
       renderAdminLists();
+    }
+
+    function getVisibleSuccessItems() {
+      return items
+        .filter(item => !reprocessingIds.has(String(item.id)))
+        .filter(item => successRoleFilter === 'trial' ? item.owner_role === 'trial' : true);
+    }
+
+    function canCurrentUserDelete(item) {
+      if (currentAccessRole !== 'trial') return true;
+      return item?.owner_role === 'trial';
     }
 
     function normalizeItem(row, fallbackPreview) {
@@ -1842,11 +1857,7 @@
 
     function renderAdminLists() {
       const failed = failedAssets.filter(item => !reprocessingIds.has(String(item.id))).slice().sort(sortByDateDesc);
-      const success = items
-        .filter(item => !reprocessingIds.has(String(item.id)))
-        .filter(item => successRoleFilter === 'trial' ? item.owner_role === 'trial' : true)
-        .slice()
-        .sort(sortByDateDesc);
+      const success = getVisibleSuccessItems().slice().sort(sortByDateDesc);
 
       failedCount.textContent = String(failed.length);
       successCount.textContent = String(success.length);
@@ -1874,6 +1885,7 @@
         : item.owner_role === 'trial'
           ? 'bg-[#FF2442] text-white'
           : 'bg-gray-200 text-gray-600';
+      const deletable = canCurrentUserDelete(item);
       return `
         <div class="flex gap-3 rounded-2xl bg-paper p-3">
           <div class="relative">
@@ -1890,7 +1902,7 @@
             <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
             <div class="mt-3 flex gap-2">
               ${item.status !== 'success' && canRetry ? `<button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button>` : ''}
-              <button data-action="delete" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('delete')}</button>
+              <button data-action="delete" data-id="${escapeHtml(String(item.id))}" ${deletable ? '' : 'disabled'} class="rounded-full border border-gray-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide ${deletable ? 'bg-white text-gray-500' : 'cursor-not-allowed bg-gray-100 text-gray-300'}">${t('delete')}</button>
             </div>
           </div>
         </div>
@@ -2030,6 +2042,10 @@
     }
 
     async function deleteAsset(item, skipConfirm = false) {
+      if (!canCurrentUserDelete(item)) {
+        window.alert(t('deleteDeniedTrial'));
+        return;
+      }
       if (!skipConfirm && !window.confirm(t('deleteConfirm'))) return;
       if (item.storage_path) {
         try {
@@ -2060,9 +2076,17 @@
       if (!ids.length) return;
       if (!window.confirm(t('deleteConfirm'))) return;
       const all = [...items, ...failedAssets];
-      const selectedItems = ids
+      const selectedItemsRaw = ids
         .map(id => all.find(entry => String(entry.id) === String(id)))
         .filter(Boolean);
+      const selectedItems = selectedItemsRaw.filter(canCurrentUserDelete);
+      if (!selectedItems.length) {
+        window.alert(t('deleteDeniedTrial'));
+        return;
+      }
+      if (selectedItems.length < selectedItemsRaw.length) {
+        showToast(t('batchDeleteDeniedPartial'));
+      }
 
       const storagePaths = Array.from(new Set(selectedItems
         .map(item => item.storage_path)
@@ -2279,10 +2303,11 @@
 
     function toggleSelectAllSuccess() {
       const checked = successSelectAll.checked;
+      const visibleSuccess = getVisibleSuccessItems();
       if (checked) {
-        items.forEach(item => selectedAssetIds.add(String(item.id)));
+        visibleSuccess.forEach(item => selectedAssetIds.add(String(item.id)));
       } else {
-        items.forEach(item => selectedAssetIds.delete(String(item.id)));
+        visibleSuccess.forEach(item => selectedAssetIds.delete(String(item.id)));
       }
       renderAdminLists();
     }
