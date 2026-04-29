@@ -246,6 +246,7 @@
   </div>
 
   <div id="toast" class="pointer-events-none fixed left-1/2 top-4 z-[120] hidden -translate-x-1/2 rounded-full bg-black/85 px-4 py-2 text-xs font-bold text-white shadow-xl"></div>
+  <div id="versionBadge" class="fixed bottom-3 right-3 z-[119] rounded-full bg-black/80 px-2.5 py-1 text-[10px] font-bold text-white shadow-lg">v17.1.2</div>
 
   <div id="authModal" class="fixed inset-0 z-[130] hidden bg-black/45 px-5">
     <div class="mx-auto mt-28 max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
@@ -351,7 +352,8 @@
         authSubtitle: '主用户或次用户密码均可登录',
         authPlaceholder: '输入密码',
         authSubmit: '登录',
-        authInvalid: '密码无效，请重试'
+        authInvalid: '密码无效，请重试',
+        versionLabel: '版本'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -421,7 +423,8 @@
         authSubtitle: 'Master or trial password is accepted',
         authPlaceholder: 'Password',
         authSubmit: 'Sign In',
-        authInvalid: 'Invalid password, please try again'
+        authInvalid: 'Invalid password, please try again',
+        versionLabel: 'Version'
       }
     };
     const DICTIONARY = {
@@ -506,6 +509,7 @@
     const authSubmitBtn = document.getElementById('authSubmitBtn');
     const authError = document.getElementById('authError');
     const toast = document.getElementById('toast');
+    const versionBadge = document.getElementById('versionBadge');
     let toastTimer = null;
     const debugEntries = [];
     const MAX_DEBUG_ENTRIES = 200;
@@ -665,6 +669,7 @@
       authPwdInput.placeholder = t('authPlaceholder');
       authSubmitBtn.textContent = t('authSubmit');
       modelSelect.setAttribute('aria-label', t('modelLabel'));
+      versionBadge.textContent = `${t('versionLabel')} v${APP_VERSION}`;
       queueClearBtn.textContent = t('queueClear');
       roleFilterBtn.textContent = successRoleFilter === 'trial' ? t('roleFilterAll') : t('roleFilterTrial');
       roleFilterBtn.className = `rounded-full border px-2 py-1 text-[10px] font-bold ${successRoleFilter === 'trial' ? 'border-black bg-black text-white' : 'border-gray-200 bg-white text-gray-700'}`;
