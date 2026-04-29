@@ -231,10 +231,8 @@
       S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co",
       S_KEY: "sb_publishable_tDg0y9w1HZFb_oV5Gb7VHg_Sh_g-1Cf",
       K_KEY: "sk-8or80CblH3SSruV1VyNpfpAJP59YTiFPIfu8toxbYDxWyN8K",
-      DOUBAO_KEY: "ark-953ca7af-e7f0-4f43-9e6f-0577f6895769-bc365",
       BUCKET: "Gallery01",
       K_URL: "https://api.bltcy.ai/v1/chat/completions",
-      DOUBAO_URL: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
       K_MODEL: "claude-haiku-4-5-20251001"
     };
 
@@ -243,14 +241,7 @@
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const DEBUG_KEY = 'pro_creation_station_debug_v1';
-    const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning', 'doubao-1.5-vision-pro-250328'];
-    const MODEL_PROVIDER = {
-      'claude-haiku-4-5-20251001': 'default',
-      'gpt-4o-mini': 'default',
-      'kimi-k2.5': 'default',
-      'grok-4-fast-non-reasoning': 'default',
-      'doubao-1.5-vision-pro-250328': 'doubao'
-    };
+    const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning', 'doubao-1.5-pro-256k'];
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
     const DIMS = ['视角', '姿态', '构图', '环境', '素材'];
     const DIM_LABELS = {
@@ -299,8 +290,7 @@
         queuePause: '暂停',
         queueResume: '继续',
         queuedStandby: '待命',
-        duplicateFile: '文件名重复，已拦截上传',
-        missingDoubaoKey: '豆包模型未配置 Key，请先在 CONFIG.DOUBAO_KEY 填入后重试'
+        duplicateFile: '文件名重复，已拦截上传'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -343,8 +333,7 @@
         queuePause: 'Pause',
         queueResume: 'Resume',
         queuedStandby: 'Standby',
-        duplicateFile: 'Duplicate filename, upload blocked',
-        missingDoubaoKey: 'Doubao key is missing. Fill CONFIG.DOUBAO_KEY before retrying.'
+        duplicateFile: 'Duplicate filename, upload blocked'
       }
     };
     const DICTIONARY = {
@@ -414,6 +403,8 @@
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
     const toast = document.getElementById('toast');
     let toastTimer = null;
+    const debugEntries = [];
+    const MAX_DEBUG_ENTRIES = 200;
     let isQueuePaused = false;
     const pendingTasks = [];
     const MAX_CONCURRENT_UPLOADS = 2;
@@ -452,6 +443,7 @@
     document.querySelectorAll('#dimNav .nav-tab').forEach(btn => {
       btn.addEventListener('click', () => switchDim(btn.dataset.dim, btn));
     });
+    setupGlobalErrorCapture();
 
     init();
 
@@ -591,7 +583,7 @@
         publicUrl = client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName).data.publicUrl;
         updateQueueItem(tempId, { status: t('aiParsing') });
 
-        const aiData = await requestAI(compressedBase64);
+        const aiData = await requestAI(publicUrl, compressedBase64);
         const normalized = normalizeAI(aiData);
         const validationError = validateStrictSingleChoice(aiData);
         pushDebugLog('upload', {
@@ -629,6 +621,7 @@
         renderAdminLists();
       } catch (error) {
         console.error('上传链路失败:', error);
+        logCaughtError('uploadSingle', error, { tempId, fileName, model: currentModel });
         const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
         const failedAsset = normalizeFailureRecord({
           id: tempId,
@@ -675,6 +668,7 @@
         renderAdminLists();
       } catch (error) {
         console.error('远程同步失败:', error);
+        logCaughtError('syncRemote', error);
       }
     }
 
@@ -688,6 +682,7 @@
         renderAdminLists();
       } catch (error) {
         console.error('缓存读取失败:', error);
+        logCaughtError('renderFromCache', error);
       }
     }
 
@@ -992,31 +987,28 @@
         .slice(0, 24);
     }
 
-    async function requestAI(base64) {
-      const provider = MODEL_PROVIDER[currentModel] || 'default';
-      const endpoint = provider === 'doubao' ? CONFIG.DOUBAO_URL : CONFIG.K_URL;
-      const apiKey = provider === 'doubao' ? CONFIG.DOUBAO_KEY : CONFIG.K_KEY;
+    async function requestAI(imageUrl, base64Fallback = '') {
+      const endpoint = CONFIG.K_URL;
+      const apiKey = CONFIG.K_KEY;
+      const imageInput = base64Fallback || imageUrl;
 
       if (!apiKey) {
-        throw new Error(provider === 'doubao' ? t('missingDoubaoKey') : 'Missing AI Key');
+        throw new Error('Missing AI Key');
+      }
+      if (!imageInput) {
+        throw new Error('Missing image input');
       }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: currentModel || CONFIG.K_MODEL,
-          max_tokens: 400,
-          response_format: { type: 'json_object' },
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `
+      const payload = {
+        model: currentModel || CONFIG.K_MODEL,
+        max_tokens: 400,
+        response_format: { type: 'json_object' },
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `
 你是一个专业的摄影分析师。请严格按照以下逻辑返回 JSON，不得包含任何解释。
 
 第一步：判断画面中是否存在人类主体（has_human: Boolean）。
@@ -1039,14 +1031,22 @@
   "lens": "标准 50mm"
 }
 `
-              },
-              {
-                type: 'image_url',
-                image_url: { url: base64 }
-              }
-            ]
-          }]
-        })
+            },
+            {
+              type: 'image_url',
+              image_url: { url: imageInput }
+            }
+          ]
+        }]
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) throw new Error(`Network Error ${response.status}`);
@@ -1054,6 +1054,7 @@
       try {
         return parseAIContent(result);
       } catch (error) {
+        logCaughtError('requestAI.parseAIContent', error, { model: currentModel, responsePreview: safeStringify(result).slice(0, 240) });
         console.error('AI 原始返回解析失败:', result);
         throw new Error('AI 返回数据损坏 (JSON Error)');
       }
@@ -1091,6 +1092,7 @@
       try {
         return JSON.parse(cleaned);
       } catch (error) {
+        logCaughtError('parseJSONStringLoose', error, { textPreview: cleaned.slice(0, 120) });
         const extracted = extractJSONObject(cleaned);
         if (extracted) return JSON.parse(extracted);
         throw error;
@@ -1319,6 +1321,7 @@
       localStorage.setItem(DEBUG_KEY, debugEnabled ? '1' : '0');
       renderStaticText();
       syncPageUI();
+      renderDebugLogPanel();
     }
 
     function resetAllFilters() {
@@ -1456,8 +1459,7 @@
       }, 220);
 
       try {
-        const base64 = await urlToDataURL(item.image_url);
-        const aiData = await requestAI(base64);
+        const aiData = await requestAI(item.image_url);
         const normalized = normalizeAI(aiData);
         const updates = {
           tags: normalized.tags,
@@ -1485,6 +1487,7 @@
         renderAdminLists();
       } catch (error) {
         const message = error.message || 'Retry Error';
+        logCaughtError('executeRetryTask', error, { itemId: item.id, queueId, model: currentModel });
         item.error_log = message;
         upsertFailedAsset(item);
         await updateRemoteRecord(item, { status: 'failed', error_log: message });
@@ -1506,6 +1509,7 @@
           await client.storage.from(CONFIG.BUCKET).remove([item.storage_path]);
         } catch (error) {
           console.error('Storage delete failed:', error);
+          logCaughtError('deleteAsset.storage', error, { itemId: item.id, storagePath: item.storage_path });
         }
       }
       if (item.id && !String(item.id).startsWith('tmp_')) {
@@ -1513,6 +1517,7 @@
           await client.from('inspirations').delete().eq('id', item.id);
         } catch (error) {
           console.error('DB delete failed:', error);
+          logCaughtError('deleteAsset.db', error, { itemId: item.id });
         }
       }
       removeFailedAsset(item.id, item.storage_path, item.image_url);
@@ -1545,6 +1550,7 @@
           await client.storage.from(CONFIG.BUCKET).remove(storagePaths);
         } catch (error) {
           console.error('Batch storage delete failed:', error);
+          logCaughtError('batchDeleteSelected.storage', error, { count: storagePaths.length });
         }
       }
 
@@ -1558,6 +1564,7 @@
           dbDeletedCount = dbIds.length;
         } catch (error) {
           console.error('Batch DB delete failed, fallback to single delete:', error);
+          logCaughtError('batchDeleteSelected.dbBatch', error, { count: dbIds.length });
           // 回退逐条删除，尽量保证可用性
           for (const dbId of dbIds) {
             try {
@@ -1566,6 +1573,7 @@
               dbDeletedCount += 1;
             } catch (singleError) {
               console.error('Single DB delete failed:', dbId, singleError);
+              logCaughtError('batchDeleteSelected.dbSingle', singleError, { dbId });
               dbFailedCount += 1;
             }
           }
@@ -1629,6 +1637,7 @@
           return await insertInspirationRecord(payload);
         } catch (error) {
           console.error('Fallback insert on update failed:', error);
+          logCaughtError('updateRemoteRecord.fallbackInsert', error, { itemId: item.id });
           return null;
         }
       }
@@ -1672,6 +1681,7 @@
         }
       } catch (error) {
         console.error('Persist failed record remotely skipped:', error);
+        logCaughtError('persistFailedRecordRemote', error, { itemId: item.id });
       }
     }
 
@@ -1764,14 +1774,76 @@
       }, 2200);
     }
 
+    function setupGlobalErrorCapture() {
+      window.addEventListener('error', (event) => {
+        const target = event.target;
+        if (target && target !== window) {
+          pushDebugLog('resource_error', {
+            tag: target.tagName || 'unknown',
+            src: target.currentSrc || target.src || target.href || '',
+            message: event.message || 'resource load failed'
+          });
+          return;
+        }
+        pushDebugLog('window_error', {
+          message: event.message || 'unknown error',
+          file: event.filename || '',
+          line: event.lineno || 0,
+          column: event.colno || 0,
+          stack: event.error?.stack || ''
+        });
+      }, true);
+
+      window.addEventListener('unhandledrejection', (event) => {
+        const reason = event.reason;
+        pushDebugLog('unhandled_rejection', {
+          message: reason?.message || String(reason || 'unknown rejection'),
+          stack: reason?.stack || '',
+          raw: normalizeDebugPayload(reason)
+        });
+      });
+    }
+
     function pushDebugLog(type, payload) {
-      if (!debugEnabled) return;
-      const row = document.createElement('div');
-      row.className = 'rounded bg-gray-50 px-2 py-1';
       const stamp = new Date().toLocaleTimeString();
-      row.textContent = `[${stamp}] ${type}: ${safeStringify(payload)}`;
-      debugLog.prepend(row);
-      while (debugLog.children.length > 80) debugLog.lastChild.remove();
+      debugEntries.unshift({
+        stamp,
+        type,
+        payload: normalizeDebugPayload(payload)
+      });
+      while (debugEntries.length > MAX_DEBUG_ENTRIES) debugEntries.pop();
+      if (!debugEnabled) return;
+      renderDebugLogPanel();
+    }
+
+    function renderDebugLogPanel() {
+      debugLog.innerHTML = '';
+      debugEntries.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'rounded bg-gray-50 px-2 py-1';
+        row.textContent = `[${entry.stamp}] ${entry.type}: ${safeStringify(entry.payload)}`;
+        debugLog.appendChild(row);
+      });
+    }
+
+    function normalizeDebugPayload(payload) {
+      if (payload instanceof Error) {
+        return {
+          name: payload.name,
+          message: payload.message,
+          stack: payload.stack || ''
+        };
+      }
+      if (payload && typeof payload === 'object') return payload;
+      return { value: String(payload) };
+    }
+
+    function logCaughtError(scope, error, extra = {}) {
+      pushDebugLog('caught_error', {
+        scope,
+        ...extra,
+        error: normalizeDebugPayload(error)
+      });
     }
 
     function safeStringify(value) {
@@ -1798,7 +1870,7 @@
       if (String(modelId).includes('gpt-4o-mini')) return 'GPT-4o mini';
       if (String(modelId).includes('kimi')) return 'Kimi 2.5';
       if (String(modelId).includes('grok')) return 'Grok 4 Fast';
-      if (String(modelId).includes('doubao-1.5-vision-pro')) return 'Doubao 1.5 Vision Pro';
+      if (String(modelId).includes('doubao-1.5-pro-256k')) return 'Doubao 1.5 Pro';
       return modelId || 'Unknown';
     }
 
