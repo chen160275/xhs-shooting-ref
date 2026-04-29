@@ -290,7 +290,9 @@
         queuePause: '暂停',
         queueResume: '继续',
         queuedStandby: '待命',
-        duplicateFile: '文件名重复，已拦截上传'
+        duplicateFile: '该图片已存在',
+        duplicateQueued: '该图片已在识别队列中，请勿重复提交',
+        duplicateAskRetry: '该图片已经识别过了。是否按当前模型重新识别？'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -333,7 +335,9 @@
         queuePause: 'Pause',
         queueResume: 'Resume',
         queuedStandby: 'Standby',
-        duplicateFile: 'Duplicate filename, upload blocked'
+        duplicateFile: 'This image already exists',
+        duplicateQueued: 'This image is already in queue',
+        duplicateAskRetry: 'This image was already recognized. Re-run recognition with current model?'
       }
     };
     const DICTIONARY = {
@@ -620,6 +624,25 @@
         renderGallery();
         renderAdminLists();
       } catch (error) {
+        if (error?.code === 'DUPLICATE_PENDING') {
+          showToast(t('duplicateQueued'));
+          removeQueueItem(tempId);
+          if (fileName) pendingFileNames.delete(fileName);
+          return;
+        }
+        if (error?.code === 'DUPLICATE_EXISTING') {
+          const existing = error.existing || null;
+          const shouldRetry = window.confirm(t('duplicateAskRetry'));
+          if (shouldRetry && existing && isRetryableAsset(existing)) {
+            retryFailedAsset(existing, true);
+            showToast(t('aiParsing'));
+          } else if (shouldRetry) {
+            window.alert(t('retryUnavailable'));
+          }
+          removeQueueItem(tempId);
+          if (fileName) pendingFileNames.delete(fileName);
+          return;
+        }
         console.error('上传链路失败:', error);
         logCaughtError('uploadSingle', error, { tempId, fileName, model: currentModel });
         const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
@@ -960,12 +983,13 @@
 
     async function ensureUniqueFileName(fileName) {
       if (pendingFileNames.has(fileName)) {
-        window.alert(`${t('duplicateFile')}: ${fileName}`);
-        throw new Error(`Duplicate File: ${fileName}`);
+        const duplicatePendingError = new Error(`Duplicate File In Queue: ${fileName}`);
+        duplicatePendingError.code = 'DUPLICATE_PENDING';
+        throw duplicatePendingError;
       }
       const { data, error } = await client
         .from('inspirations')
-        .select('id')
+        .select('*')
         .eq('storage_path', fileName)
         .limit(1);
       if (error) {
@@ -973,8 +997,12 @@
         return;
       }
       if (Array.isArray(data) && data.length > 0) {
-        window.alert(`${t('duplicateFile')}: ${fileName}`);
-        throw new Error(`Duplicate File: ${fileName}`);
+        const localExisting = [...items, ...failedAssets].find(entry => entry.storage_path === fileName);
+        const existingAsset = localExisting || normalizeItem(data[0]);
+        const duplicateExistingError = new Error(`Duplicate File: ${fileName}`);
+        duplicateExistingError.code = 'DUPLICATE_EXISTING';
+        duplicateExistingError.existing = existingAsset;
+        throw duplicateExistingError;
       }
     }
 
@@ -1049,7 +1077,16 @@
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error(`Network Error ${response.status}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        logCaughtError('requestAI.http', new Error(`HTTP ${response.status}`), {
+          model: currentModel,
+          endpoint,
+          status: response.status,
+          responseText: String(errorText || '').slice(0, 500)
+        });
+        throw new Error(`Network Error ${response.status}: ${String(errorText || '').slice(0, 180)}`);
+      }
       const result = await response.json();
       try {
         return parseAIContent(result);
