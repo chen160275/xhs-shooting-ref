@@ -231,8 +231,10 @@
       S_URL: "https://vblbsudjygkdlkyzadmr.supabase.co",
       S_KEY: "sb_publishable_tDg0y9w1HZFb_oV5Gb7VHg_Sh_g-1Cf",
       K_KEY: "sk-8or80CblH3SSruV1VyNpfpAJP59YTiFPIfu8toxbYDxWyN8K",
+      DOUBAO_KEY: "ark-953ca7af-e7f0-4f43-9e6f-0577f6895769-bc365",
       BUCKET: "Gallery01",
       K_URL: "https://api.bltcy.ai/v1/chat/completions",
+      DOUBAO_URL: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
       K_MODEL: "claude-haiku-4-5-20251001"
     };
 
@@ -241,7 +243,14 @@
     const LANG_KEY = 'pro_creation_station_lang_v1';
     const MODEL_KEY = 'pro_creation_station_model_v1';
     const DEBUG_KEY = 'pro_creation_station_debug_v1';
-    const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning'];
+    const MODELS = ['claude-haiku-4-5-20251001', 'gpt-4o-mini', 'kimi-k2.5', 'grok-4-fast-non-reasoning', 'doubao-1.5-vision-pro-250328'];
+    const MODEL_PROVIDER = {
+      'claude-haiku-4-5-20251001': 'default',
+      'gpt-4o-mini': 'default',
+      'kimi-k2.5': 'default',
+      'grok-4-fast-non-reasoning': 'default',
+      'doubao-1.5-vision-pro-250328': 'doubao'
+    };
     const LENS_OPTIONS = ['超广角', '广角 24mm', '标准 50mm', '人像 85mm', '长焦'];
     const DIMS = ['视角', '姿态', '构图', '环境', '素材'];
     const DIM_LABELS = {
@@ -290,7 +299,8 @@
         queuePause: '暂停',
         queueResume: '继续',
         queuedStandby: '待命',
-        duplicateFile: '文件名重复，已拦截上传'
+        duplicateFile: '文件名重复，已拦截上传',
+        missingDoubaoKey: '豆包模型未配置 Key，请先在 CONFIG.DOUBAO_KEY 填入后重试'
       },
       en: {
         brandTitle: 'Creation Station',
@@ -333,7 +343,8 @@
         queuePause: 'Pause',
         queueResume: 'Resume',
         queuedStandby: 'Standby',
-        duplicateFile: 'Duplicate filename, upload blocked'
+        duplicateFile: 'Duplicate filename, upload blocked',
+        missingDoubaoKey: 'Doubao key is missing. Fill CONFIG.DOUBAO_KEY before retrying.'
       }
     };
     const DICTIONARY = {
@@ -405,8 +416,11 @@
     let toastTimer = null;
     let isQueuePaused = false;
     const pendingTasks = [];
-    const MAX_CONCURRENT_UPLOADS = 3;
+    const MAX_CONCURRENT_UPLOADS = 2;
     let activeTaskCount = 0;
+    const pendingRetryTasks = [];
+    const MAX_CONCURRENT_RETRY_AI = 2;
+    let activeRetryTaskCount = 0;
     const pendingFileNames = new Set();
     const reprocessingIds = new Set();
 
@@ -532,8 +546,10 @@
       queueToggleBtn.textContent = isQueuePaused ? t('queueResume') : t('queuePause');
       if (isQueuePaused) {
         pendingTasks.forEach(task => updateQueueItem(task.tempId, { status: t('queuedStandby') }));
+        pendingRetryTasks.forEach(task => updateQueueItem(task.queueId, { status: t('queuedStandby') }));
       } else {
         processUploadQueue();
+        processRetryQueue();
       }
     }
 
@@ -977,11 +993,19 @@
     }
 
     async function requestAI(base64) {
-      const response = await fetch(CONFIG.K_URL, {
+      const provider = MODEL_PROVIDER[currentModel] || 'default';
+      const endpoint = provider === 'doubao' ? CONFIG.DOUBAO_URL : CONFIG.K_URL;
+      const apiKey = provider === 'doubao' ? CONFIG.DOUBAO_KEY : CONFIG.K_KEY;
+
+      if (!apiKey) {
+        throw new Error(provider === 'doubao' ? t('missingDoubaoKey') : 'Missing AI Key');
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${CONFIG.K_KEY}`
+          'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
           model: currentModel || CONFIG.K_MODEL,
@@ -1394,11 +1418,36 @@
         window.alert(t('retryUnavailable'));
         return;
       }
+      if (reprocessingIds.has(String(item.id))) {
+        return;
+      }
+      enqueueRetryTask(item);
+      processRetryQueue();
+    }
 
+    function enqueueRetryTask(item) {
       const queueId = `retry_${item.id}_${Date.now()}`;
       reprocessingIds.add(String(item.id));
       renderAdminLists();
-      renderQueueItem({ id: queueId, previewUrl: item.image_url, status: t('aiParsing'), queueType: 'retry' });
+      pendingRetryTasks.push({ item, queueId });
+      renderQueueItem({ id: queueId, previewUrl: item.image_url, status: t('queuedStandby'), queueType: 'retry' });
+    }
+
+    function processRetryQueue() {
+      if (isQueuePaused) return;
+      while (!isQueuePaused && activeRetryTaskCount < MAX_CONCURRENT_RETRY_AI && pendingRetryTasks.length) {
+        const task = pendingRetryTasks.shift();
+        activeRetryTaskCount += 1;
+        executeRetryTask(task.item, task.queueId)
+          .finally(() => {
+            activeRetryTaskCount = Math.max(0, activeRetryTaskCount - 1);
+            processRetryQueue();
+          });
+      }
+    }
+
+    async function executeRetryTask(item, queueId) {
+      updateQueueItem(queueId, { status: t('aiParsing') });
       let fakeProgress = 8;
       updateQueueItem(queueId, { progress: fakeProgress });
       const timer = setInterval(() => {
@@ -1554,10 +1603,12 @@
       if (!ids.length) return;
       if (!window.confirm(t('retryConfirm'))) return;
       const all = [...items, ...failedAssets];
-      for (const id of ids) {
-        const item = all.find(entry => String(entry.id) === String(id));
-        if (item) await retryFailedAsset(item, true);
-      }
+      const targets = ids
+        .map(id => all.find(entry => String(entry.id) === String(id)))
+        .filter(item => item && isRetryableAsset(item) && !reprocessingIds.has(String(item.id)));
+      targets.forEach(item => {
+        retryFailedAsset(item, true);
+      });
       selectedAssetIds.clear();
       syncSelectAllState(items);
       syncBatchBar();
@@ -1747,6 +1798,7 @@
       if (String(modelId).includes('gpt-4o-mini')) return 'GPT-4o mini';
       if (String(modelId).includes('kimi')) return 'Kimi 2.5';
       if (String(modelId).includes('grok')) return 'Grok 4 Fast';
+      if (String(modelId).includes('doubao-1.5-vision-pro')) return 'Doubao 1.5 Vision Pro';
       return modelId || 'Unknown';
     }
 
