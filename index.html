@@ -1442,6 +1442,10 @@
         throw new Error(`Network Error ${response.status}: ${String(errorText || '').slice(0, 180)}`);
       }
       const result = await response.json();
+      if (result && typeof result === 'object' && result.error) {
+        const detail = String(result.detail || result.reason || result.message || result.error);
+        throw new Error(detail || 'AI Error');
+      }
       try {
         return parseAIContent(result);
       } catch (error) {
@@ -1669,9 +1673,34 @@
       } catch (error) {
         logCaughtError('parseJSONStringLoose', error, { textPreview: cleaned.slice(0, 120) });
         const extracted = extractJSONObject(cleaned);
-        if (extracted) return JSON.parse(extracted);
+        if (extracted) {
+          try {
+            return JSON.parse(extracted);
+          } catch (innerError) {
+            const repaired = repairJSONString(extracted);
+            if (repaired) return JSON.parse(repaired);
+          }
+        }
+        const repairedCleaned = repairJSONString(cleaned);
+        if (repairedCleaned) return JSON.parse(repairedCleaned);
         throw error;
       }
+    }
+
+    function repairJSONString(text) {
+      const input = String(text || '').trim();
+      if (!input) return '';
+      let repaired = input;
+      repaired = repaired
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/\r/g, '');
+      // Normalize unquoted keys: { tags: ... } -> { "tags": ... }
+      repaired = repaired.replace(/([{,]\s*)([A-Za-z0-9_\u4e00-\u9fa5]+)\s*:/g, '$1"$2":');
+      // Normalize single-quoted string values -> double quotes.
+      repaired = repaired.replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, (m, p1) => `: "${String(p1).replace(/"/g, '\\"')}"`);
+      return repaired;
     }
 
     function extractJSONObject(text) {
@@ -1971,8 +2000,10 @@
             </div>
             ${item.status === 'success' ? `<div class="mt-2 flex flex-wrap gap-1.5">${renderTagMarkup(item.tags, true)}</div>` : ''}
             <div class="mt-1 line-clamp-2 text-[11px] ${item.status === 'success' ? 'text-gray-400' : 'text-redx'}">${t('reasonPrefix')}: ${escapeHtml(reason)}</div>
-            <div class="mt-3 flex gap-2">
-              ${item.status !== 'success' && canRetry ? `<button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button>` : ''}
+            <div class="mt-3 flex items-end justify-between gap-2">
+              <div>
+                ${item.status !== 'success' && canRetry ? `<button data-action="retry" data-id="${escapeHtml(String(item.id))}" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-gray-500">${t('retry')}</button>` : ''}
+              </div>
               <button data-action="delete" data-id="${escapeHtml(String(item.id))}" ${deletable ? '' : 'disabled'} class="rounded-full border border-gray-200 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide ${deletable ? 'bg-white text-gray-500' : 'cursor-not-allowed bg-gray-100 text-gray-300'}">${t('delete')}</button>
             </div>
           </div>
