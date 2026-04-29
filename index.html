@@ -122,6 +122,7 @@
             <div id="adminSubtitle" class="mt-1 text-[11px] text-gray-400">Manage synced cloud assets and retry failed AI jobs</div>
           </div>
           <div class="flex items-center gap-2">
+            <button id="queueClearBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">清空队列</button>
             <button id="queueToggleBtn" class="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-700">暂停</button>
             <select id="modelSelect" class="max-w-[180px] rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-bold text-gray-600">
             </select>
@@ -314,6 +315,9 @@
         uploading: '上传中...',
         uploadingCloud: '上传至云端中...',
         aiParsing: 'AI 语义解析中...',
+        queueClear: '清空队列',
+        queueCleared: '队列已清空',
+        queueCancelled: '已取消',
         queuePause: '暂停',
         queueResume: '继续',
         queuedStandby: '待命',
@@ -373,6 +377,9 @@
         uploading: 'Uploading...',
         uploadingCloud: 'Uploading to cloud...',
         aiParsing: 'AI parsing...',
+        queueClear: 'Clear Queue',
+        queueCleared: 'Queue cleared',
+        queueCancelled: 'Cancelled',
         queuePause: 'Pause',
         queueResume: 'Resume',
         queuedStandby: 'Standby',
@@ -441,6 +448,7 @@
     const clearFiltersBtn = document.getElementById('clearFiltersBtn');
     const adminToggle = document.getElementById('adminToggle');
     const modelSelect = document.getElementById('modelSelect');
+    const queueClearBtn = document.getElementById('queueClearBtn');
     const debugToggleBtn = document.getElementById('debugToggleBtn');
     const queueToggleBtn = document.getElementById('queueToggleBtn');
     const langToggle = document.getElementById('langToggle');
@@ -486,6 +494,9 @@
     let activeRetryTaskCount = 0;
     const pendingFileNames = new Set();
     const reprocessingIds = new Set();
+    const queueTaskMeta = new Map();
+    const activeUploadTaskIds = new Set();
+    const activeRetryTaskIds = new Set();
 
     uploadBtn.addEventListener('click', openPicker);
     clearFiltersBtn.addEventListener('click', resetAllFilters);
@@ -494,6 +505,7 @@
       currentModel = e.target.value;
       localStorage.setItem(MODEL_KEY, currentModel);
     });
+    queueClearBtn.addEventListener('click', clearRecognitionQueue);
     debugToggleBtn.addEventListener('click', toggleDebugPanel);
     queueToggleBtn.addEventListener('click', toggleQueuePause);
     queueStrip.addEventListener('scroll', syncQueueHint);
@@ -586,6 +598,7 @@
       authPwdInput.placeholder = t('authPlaceholder');
       authSubmitBtn.textContent = t('authSubmit');
       modelSelect.setAttribute('aria-label', t('modelLabel'));
+      queueClearBtn.textContent = t('queueClear');
       modelSelect.innerHTML = MODELS.map(m => `<option value="${m}">${m}</option>`).join('');
       modelSelect.value = currentModel;
       debugToggleBtn.textContent = `${currentLang === 'zh' ? '调试' : 'Debug'}: ${debugEnabled ? (currentLang === 'zh' ? '开' : 'On') : (currentLang === 'zh' ? '关' : 'Off')}`;
@@ -632,7 +645,63 @@
       const tempId = 'tmp_' + Date.now() + Math.random().toString(36).slice(2, 7);
       const previewUrl = URL.createObjectURL(file);
       pendingTasks.push({ file, tempId, previewUrl });
+      queueTaskMeta.set(tempId, { type: 'upload', cancelled: false, previewUrl, uploadedPath: '' });
       renderQueueItem({ id: tempId, previewUrl, status: isQueuePaused ? t('queuedStandby') : t('uploading'), queueType: 'upload' });
+    }
+
+    function markQueueTaskCancelled(id) {
+      const meta = queueTaskMeta.get(id);
+      if (meta) meta.cancelled = true;
+    }
+
+    function isQueueTaskCancelled(id) {
+      return Boolean(queueTaskMeta.get(id)?.cancelled);
+    }
+
+    async function safeRemoveUploadedPath(path) {
+      if (!path) return;
+      try {
+        await client.storage.from(CONFIG.BUCKET).remove([path]);
+      } catch (error) {
+        logCaughtError('safeRemoveUploadedPath', error, { path });
+      }
+    }
+
+    async function clearRecognitionQueue() {
+      const pendingUploads = pendingTasks.splice(0);
+      const pendingRetries = pendingRetryTasks.splice(0);
+
+      pendingUploads.forEach(task => {
+        markQueueTaskCancelled(task.tempId);
+        removeQueueItem(task.tempId);
+        if (task.previewUrl) URL.revokeObjectURL(task.previewUrl);
+      });
+
+      pendingRetries.forEach(task => {
+        markQueueTaskCancelled(task.queueId);
+        reprocessingIds.delete(String(task.item?.id));
+        removeQueueItem(task.queueId);
+      });
+
+      const runningUploads = Array.from(activeUploadTaskIds);
+      const runningRetries = Array.from(activeRetryTaskIds);
+
+      for (const id of runningUploads) {
+        markQueueTaskCancelled(id);
+        updateQueueItem(id, { status: t('queueCancelled'), error: true });
+        const uploadedPath = queueTaskMeta.get(id)?.uploadedPath || '';
+        if (uploadedPath) await safeRemoveUploadedPath(uploadedPath);
+      }
+
+      for (const id of runningRetries) {
+        markQueueTaskCancelled(id);
+        const itemId = queueTaskMeta.get(id)?.itemId;
+        if (itemId) reprocessingIds.delete(String(itemId));
+        updateQueueItem(id, { status: t('queueCancelled'), error: true });
+      }
+
+      renderAdminLists();
+      showToast(t('queueCleared'));
     }
 
     function toggleQueuePause() {
@@ -661,6 +730,7 @@
     }
 
     async function uploadSingle(file, tempId, previewUrl) {
+      activeUploadTaskIds.add(tempId);
       updateQueueItem(tempId, { status: t('uploading') });
       let fileName = '';
       let publicUrl = '';
@@ -711,15 +781,29 @@
         const uploadResult = await uploadToSupabase(fileName, uploadBlob, (progress) => {
           updateQueueItem(tempId, { progress });
         });
+        const meta = queueTaskMeta.get(tempId);
+        if (meta) meta.uploadedPath = fileName;
 
         if (uploadResult.error) {
           throw new Error('Storage Error');
+        }
+        if (isQueueTaskCancelled(tempId)) {
+          await safeRemoveUploadedPath(fileName);
+          removeQueueItem(tempId);
+          pendingFileNames.delete(fileName);
+          return;
         }
 
         publicUrl = client.storage.from(CONFIG.BUCKET).getPublicUrl(fileName).data.publicUrl;
         updateQueueItem(tempId, { status: t('aiParsing') });
 
         const aiData = await requestAI(publicUrl, compressedBase64);
+        if (isQueueTaskCancelled(tempId)) {
+          await safeRemoveUploadedPath(fileName);
+          removeQueueItem(tempId);
+          pendingFileNames.delete(fileName);
+          return;
+        }
         const normalized = normalizeAI(aiData);
         const validationError = validateStrictSingleChoice(aiData);
         pushDebugLog('upload', {
@@ -753,9 +837,17 @@
         persistCache();
         removeQueueItem(tempId);
         pendingFileNames.delete(fileName);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
         renderGallery();
         renderAdminLists();
       } catch (error) {
+        if (isQueueTaskCancelled(tempId)) {
+          if (fileName) await safeRemoveUploadedPath(fileName);
+          removeQueueItem(tempId);
+          if (fileName) pendingFileNames.delete(fileName);
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+          return;
+        }
         console.error('上传链路失败:', error);
         logCaughtError('uploadSingle', error, { tempId, fileName, model: currentModel });
         const statusText = error.message === 'AI 返回数据损坏 (JSON Error)' ? 'JSON Error' : error.message;
@@ -780,8 +872,12 @@
         });
         removeQueueItem(tempId);
         if (fileName) pendingFileNames.delete(fileName);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
         renderGallery();
         renderAdminLists();
+      } finally {
+        activeUploadTaskIds.delete(tempId);
+        queueTaskMeta.delete(tempId);
       }
     }
 
@@ -1031,7 +1127,7 @@
           <div class="percent-text text-[8px] font-bold text-gray-500">0%</div>
         </div>
       `;
-      queueStrip.prepend(card);
+      queueStrip.appendChild(card);
       requestAnimationFrame(syncQueueHint);
     }
 
@@ -1057,6 +1153,7 @@
       if (!queueStrip.children.length) {
         queueStrip.classList.add('hidden');
       }
+      queueTaskMeta.delete(id);
       requestAnimationFrame(syncQueueHint);
     }
 
@@ -1756,6 +1853,7 @@
       reprocessingIds.add(String(item.id));
       renderAdminLists();
       pendingRetryTasks.push({ item, queueId });
+      queueTaskMeta.set(queueId, { type: 'retry', cancelled: false, itemId: String(item.id) });
       renderQueueItem({ id: queueId, previewUrl: item.image_url, status: t('queuedStandby'), queueType: 'retry' });
     }
 
@@ -1773,6 +1871,7 @@
     }
 
     async function executeRetryTask(item, queueId) {
+      activeRetryTaskIds.add(queueId);
       updateQueueItem(queueId, { status: t('aiParsing') });
       let fakeProgress = 8;
       updateQueueItem(queueId, { progress: fakeProgress });
@@ -1783,7 +1882,9 @@
 
       try {
         const base64 = await urlToDataURL(item.image_url);
+        if (isQueueTaskCancelled(queueId)) return;
         const aiData = await requestAI(item.image_url, base64);
+        if (isQueueTaskCancelled(queueId)) return;
         const normalized = normalizeAI(aiData);
         const updates = {
           tags: normalized.tags,
@@ -1811,6 +1912,7 @@
         renderGallery();
         renderAdminLists();
       } catch (error) {
+        if (isQueueTaskCancelled(queueId)) return;
         const message = error.message || 'Retry Error';
         logCaughtError('executeRetryTask', error, { itemId: item.id, queueId, model: currentModel });
         item.ai_model = currentModel;
@@ -1823,6 +1925,7 @@
       } finally {
         reprocessingIds.delete(String(item.id));
         renderAdminLists();
+        activeRetryTaskIds.delete(queueId);
         clearInterval(timer);
         setTimeout(() => removeQueueItem(queueId), 500);
       }
